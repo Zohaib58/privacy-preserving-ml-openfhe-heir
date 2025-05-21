@@ -20,6 +20,41 @@ vector<double> calculateDiagonal(EmbeddingMatrix mat, int diagNum){
 
 }
 
+EmbeddingMatrix addPositionalEncoding(EmbeddingMatrix embeddings){
+
+    EmbeddingMatrix peMatrix;
+
+    int words = embeddings.size();
+    int dim = embeddings[0].size();
+
+    for (int i = 0; i < words; i++){
+        vector<double> wordPE = {};
+        for (int j = 0; j < dim; j++)
+        {
+            if (j % 2 == 0)
+            {
+                wordPE.push_back(sin((i) / pow((10000), (j/dim))));
+
+            }
+            else{
+                wordPE.push_back(cos((i) / pow((10000), (j/dim))));
+            }
+        }
+
+        peMatrix.push_back(wordPE);
+    }
+
+    for (int i = 0; i < words; i++){
+        for (int j = 0; j < dim; j++)
+        {
+            peMatrix[i][j] += embeddings[i][j];
+        }
+    }
+
+    return peMatrix;
+
+}
+
 int main(){
     
     // Step 1: Tokenized sentences
@@ -48,44 +83,13 @@ int main(){
     size_t words = 0;
     size_t dim = 0;
 
-    // postional encoding
-    if (!embeddings.empty()){
-        words = embeddings.size();
-        dim = embeddings[0].size();
-    }
-
+    // postional encoding]
     EmbeddingMatrix peMatrix;
-
-    if (words && dim) {
-        
-        for (int i = 0; i < words; i++)
-        {
-            vector<double> wordPE = {};
-            for (int j = 0; j < dim; j++)
-            {
-                if (j % 2 == 0)
-                {
-                    wordPE.push_back(sin((i) / pow((10000), (j/dim))));
-
-                }
-                else{
-                    wordPE.push_back(cos((i) / pow((10000), (j/dim))));
-                }
-            }
-
-            peMatrix.push_back(wordPE);
-        }
-
+    if (!embeddings.empty()){
+        peMatrix = addPositionalEncoding(embeddings);
     }
 
-    if (peMatrix.size() > 0) {
-        for (int i = 0; i < words; i++){
-            for (int j = 0; j < dim; j++)
-            {
-                peMatrix[i][j] += embeddings[i][j];
-            }
-        }
-
+    if (!peMatrix.empty()){
         auto keys = cc -> KeyGen();
         cc -> EvalMultKeyGen(keys.secretKey);
             
@@ -96,6 +100,9 @@ int main(){
             auto enc = cc -> Encrypt(keys.publicKey, ptxt);
             encPE.push_back(enc);
         }
+
+
+
 
 
         // start working on projects via diagonal matrices
@@ -205,3 +212,9 @@ int main(){
 
       
 }
+    
+
+
+        
+
+        

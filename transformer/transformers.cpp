@@ -1,11 +1,24 @@
 #define PROFILE
 #include "openfhe/pke/openfhe.h"
 #include <cmath>
+#include <array>
 using namespace lbcrypto;
 using namespace std;
 using Vector = vector<double>; 
 using EmbeddingMatrix = vector<Vector>;
 using DotProdMatrix = vector<vector<Ciphertext<DCRTPoly>>>;
+
+
+vector<double> calculateDiagonal(EmbeddingMatrix mat, int diagNum){
+    int size = mat.size();
+    vector<double> diagonalMat;
+    for (int i = 0; i < size; i++)
+    {
+        diagonalMat.push_back(mat[i][(i + diagNum) % size]);
+    }
+    return diagonalMat;
+
+}
 
 int main(){
     
@@ -32,8 +45,8 @@ int main(){
     cc -> Enable(LEVELEDSHE);
     cc -> Enable(ADVANCEDSHE);
    
-    int8_t words = 0;
-    int8_t dim = 0;
+    size_t words = 0;
+    size_t dim = 0;
 
     // postional encoding
     if (!embeddings.empty()){
@@ -84,11 +97,69 @@ int main(){
             encPE.push_back(enc);
         }
 
+
+        // start working on projects via diagonal matrices
+        EmbeddingMatrix W_Q =
+        {
+            {0.1, 0.2, 0.3, 0.4},
+            {0.5, 0.6, 0.7, 0.8},
+            {0.9, 1.0, 1.1, 1.2},
+            {1.3, 1.4, 1.5, 1.6}
+        };
+
+        EmbeddingMatrix W_K =
+        {
+            {0.2, 0.1, 0.4, 0.3},
+            {0.6, 0.5, 0.8, 0.7},
+            {1.0, 0.9, 1.2, 1.1},
+            {1.4, 1.3, 1.6, 1.5}
+
+        };
+  
+        EmbeddingMatrix W_V =
+        {
+            {0.3, 0.4, 0.1, 0.2},
+            {0.7, 0.8, 0.5, 0.6},
+            {1.1, 1.2, 0.9, 1.0},
+            {1.5, 1.6, 1.3, 1.4}
+        };
+
+        array<Ciphertext<DCRTPoly>, 3> q;
+        
+        
+        vector<int32_t> rotIndicesQ;
+        for (int i = 0; i < dim; i++){
+            rotIndicesQ.push_back(i);
+        }
+        cc -> EvalAtIndexKeyGen(keys.secretKey, rotIndicesQ);
+
+
+
+        for (int i = 0; i < words; i++) {
+            for (int j = 0; j < dim; j++){
+               const auto& encTok = encPE[i];
+               q[i] = cc -> EvalMult((cc -> EvalRotate(encTok, j)), cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_Q, j)));
+            }
+        }
+
+        
+        
+
+
+
+
+
+
+
         vector<int32_t> rotIndices;
         for (int i = 1; i < dim; i *= 2){
             rotIndices.push_back(i);
         }
         cc -> EvalAtIndexKeyGen(keys.secretKey, rotIndices);
+
+
+
+
 
         DotProdMatrix dotProdMatrix(words, vector<Ciphertext<DCRTPoly>>(words));
         if (peMatrix.size() > 0){

@@ -55,19 +55,22 @@ EmbeddingMatrix addPositionalEncoding(EmbeddingMatrix embeddings){
 
 }
 
-EmbeddingMatrix applyDiagonalProjection(vector<Ciphertext<DCRTPoly>> encPE, EmbeddingMatrix W_, CryptoContext<DCRTPoly> cc){
+array<Ciphertext<DCRTPoly>, 3> applyDiagonalProjection(vector<Ciphertext<DCRTPoly>> encPE, EmbeddingMatrix W_, CryptoContext<DCRTPoly> cc){
 
-    int words = 3;
-    int dim = 4;
+    size_t const words = 3;
+    size_t const dim = 4;
 
-    array<Ciphertext<DCRTPoly>, 3> p;
+    array<Ciphertext<DCRTPoly>, words> p;
         
     for (int i = 0; i < words; i++) {
         const auto& encTok = encPE[i];
         for (int j = 0; j < dim; j++){
-            p[i][j] = cc -> EvalMult((cc -> EvalRotate(encTok, j)), cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_, j)));
+            auto product = cc -> EvalMult((cc -> EvalRotate(encTok, j)), cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_, j)));
+            p[i] = (j==0) ? product : cc -> EvalAdd(p[i], product) ;
         }
     }
+
+    return p;
 
 }
 
@@ -118,7 +121,6 @@ int main(){
         }
 
 
-
         // start working on projects via diagonal matrices
         EmbeddingMatrix W_Q =
         {
@@ -146,35 +148,21 @@ int main(){
         };
 
         
-        
         vector<int32_t> rotIndicesQ;
         for (int i = 0; i < dim; i++){
             rotIndicesQ.push_back(i);
         }
         cc -> EvalAtIndexKeyGen(keys.secretKey, rotIndicesQ);
 
-
-
+        array<Ciphertext<DCRTPoly>, 3> q = applyDiagonalProjection(encPE, W_Q, cc);
+        array<Ciphertext<DCRTPoly>, 3> k = applyDiagonalProjection(encPE, W_K, cc);
+        array<Ciphertext<DCRTPoly>, 3> v = applyDiagonalProjection(encPE, W_V, cc);
         
-
-        
-        
-
-
-
-
-
-
-
         vector<int32_t> rotIndices;
         for (int i = 1; i < dim; i *= 2){
             rotIndices.push_back(i);
         }
         cc -> EvalAtIndexKeyGen(keys.secretKey, rotIndices);
-
-
-
-
 
         DotProdMatrix dotProdMatrix(words, vector<Ciphertext<DCRTPoly>>(words));
         if (peMatrix.size() > 0){

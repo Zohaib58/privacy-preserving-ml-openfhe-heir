@@ -55,6 +55,22 @@ EmbeddingMatrix addPositionalEncoding(EmbeddingMatrix embeddings){
 
 }
 
+EmbeddingMatrix applyDiagonalProjection(vector<Ciphertext<DCRTPoly>> encPE, EmbeddingMatrix W_, CryptoContext<DCRTPoly> cc){
+
+    int words = 3;
+    int dim = 4;
+
+    array<Ciphertext<DCRTPoly>, 3> p;
+        
+    for (int i = 0; i < words; i++) {
+        const auto& encTok = encPE[i];
+        for (int j = 0; j < dim; j++){
+            p[i][j] = cc -> EvalMult((cc -> EvalRotate(encTok, j)), cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_, j)));
+        }
+    }
+
+}
+
 int main(){
     
     // Step 1: Tokenized sentences
@@ -103,8 +119,6 @@ int main(){
 
 
 
-
-
         // start working on projects via diagonal matrices
         EmbeddingMatrix W_Q =
         {
@@ -131,7 +145,6 @@ int main(){
             {1.5, 1.6, 1.3, 1.4}
         };
 
-        array<Ciphertext<DCRTPoly>, 3> q;
         
         
         vector<int32_t> rotIndicesQ;
@@ -142,12 +155,7 @@ int main(){
 
 
 
-        for (int i = 0; i < words; i++) {
-            for (int j = 0; j < dim; j++){
-               const auto& encTok = encPE[i];
-               q[i] = cc -> EvalMult((cc -> EvalRotate(encTok, j)), cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_Q, j)));
-            }
-        }
+        
 
         
         

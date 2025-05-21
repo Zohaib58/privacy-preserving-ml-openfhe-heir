@@ -65,6 +65,8 @@ array<Ciphertext<DCRTPoly>, 3> applyDiagonalProjection(vector<Ciphertext<DCRTPol
     for (int i = 0; i < words; i++) {
         const auto& encTok = encPE[i];
         for (int j = 0; j < dim; j++){
+            cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_, j));
+            cc -> EvalRotate(encTok, j);
             auto product = cc -> EvalMult((cc -> EvalRotate(encTok, j)), cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_, j)));
             p[i] = (j==0) ? product : cc -> EvalAdd(p[i], product) ;
         }

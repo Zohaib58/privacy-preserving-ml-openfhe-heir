@@ -74,6 +74,19 @@ array<Ciphertext<DCRTPoly>, 3> applyDiagonalProjection(vector<Ciphertext<DCRTPol
 
 }
 
+Ciphertext<DCRTPoly> evalDotProduct(Ciphertext<DCRTPoly> q, Ciphertext<DCRTPoly> k, CryptoContext<DCRTPoly> cc, size_t dim){
+    return cc -> EvalSum(cc -> EvalMult(q, k), dim);
+}
+
+vector<Ciphertext<DCRTPoly>> evalOutput(vector<vector<Ciphertext<DCRTPoly>>> score, array<Ciphertext<DCRTPoly>, 3> v, vector<Ciphertext<DCRTPoly>>* output, CryptoContext<DCRTPoly> cc){
+    for (size_t i = 0; i < 3; i++){
+        for (size_t j = 0; j < 4; j++){
+            auto weighted = cc -> EvalMult(score[i][j], v[j]); 
+           (*output)[i] = (j == 0) ? weighted : cc -> EvalAdd(score[i][j], weighted);
+        }
+    }
+}
+
 int main(){
     
     // Step 1: Tokenized sentences
@@ -158,38 +171,26 @@ int main(){
         array<Ciphertext<DCRTPoly>, 3> k = applyDiagonalProjection(encPE, W_K, cc);
         array<Ciphertext<DCRTPoly>, 3> v = applyDiagonalProjection(encPE, W_V, cc);
         
+        vector<vector<Ciphertext<DCRTPoly>>> score;
+        for (size_t i = 0; i < words; i++){
+            for (size_t j = 0; j < dim; j++){
+                score[i][j] = evalDotProduct(q[i], k[j], cc, dim);
+            }  
+        }
+
+        vector<Ciphertext<DCRTPoly>> output;
+        evalOutput(score, v, &output, cc);
+        
+
+
         vector<int32_t> rotIndices;
-        for (int i = 1; i < dim; i *= 2){
+        for (size_t i = 1; i < dim; i *= 2){
             rotIndices.push_back(i);
         }
         cc -> EvalAtIndexKeyGen(keys.secretKey, rotIndices);
 
-        DotProdMatrix dotProdMatrix(words, vector<Ciphertext<DCRTPoly>>(words));
-        if (peMatrix.size() > 0){
-            for (int i = 0; i < words; i++){
-                for (int j =  0; j < words; j++){
-                    dotProdMatrix[i][j] = cc -> EvalSum((cc -> EvalMult(encPE[i], encPE[j])), dim);
-                }
-            }
-        }
+
         
-        vector<Ciphertext<DCRTPoly>> updEncVec(words);
-        if (!dotProdMatrix.empty() && !dotProdMatrix[0].empty()){
-            for (int i = 0; i < words; i++){
-                for (int j =  0; j < words; j++){
-                    auto product = cc -> EvalMult(dotProdMatrix[i][j], encPE[j]);
-
-                    if (j == 0){
-                        updEncVec[i] = product;
-                    }
-                    else{
-                        updEncVec[i] = cc -> EvalAdd(updEncVec[i], product);
-                    }
-                    
-                }
-            }
-        }
-
         if (!updEncVec.empty()){
 
             for (int i = 0; i < words; i++){

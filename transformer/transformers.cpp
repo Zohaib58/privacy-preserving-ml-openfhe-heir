@@ -78,11 +78,13 @@ Ciphertext<DCRTPoly> evalDotProduct(Ciphertext<DCRTPoly> q, Ciphertext<DCRTPoly>
     return cc -> EvalSum(cc -> EvalMult(q, k), dim);
 }
 
-vector<Ciphertext<DCRTPoly>> evalOutput(vector<vector<Ciphertext<DCRTPoly>>> score, array<Ciphertext<DCRTPoly>, 3> v, vector<Ciphertext<DCRTPoly>>* output, CryptoContext<DCRTPoly> cc){
+void evalOutput(vector<vector<Ciphertext<DCRTPoly>>> score, array<Ciphertext<DCRTPoly>, 3> v, vector<Ciphertext<DCRTPoly>>* output, CryptoContext<DCRTPoly> cc){
+    
+    output->resize(3);
     for (size_t i = 0; i < 3; i++){
-        for (size_t j = 0; j < 4; j++){
+        for (size_t j = 0; j < 3; j++){
             auto weighted = cc -> EvalMult(score[i][j], v[j]); 
-           (*output)[i] = (j == 0) ? weighted : cc -> EvalAdd(score[i][j], weighted);
+            (*output)[i] = (j == 0) ? weighted : cc -> EvalAdd((*output)[i], weighted);
         }
     }
 }
@@ -171,31 +173,27 @@ int main(){
         array<Ciphertext<DCRTPoly>, 3> k = applyDiagonalProjection(encPE, W_K, cc);
         array<Ciphertext<DCRTPoly>, 3> v = applyDiagonalProjection(encPE, W_V, cc);
         
-        vector<vector<Ciphertext<DCRTPoly>>> score;
+        vector<vector<Ciphertext<DCRTPoly>>> score(words, vector<Ciphertext<DCRTPoly>>(words));
         for (size_t i = 0; i < words; i++){
-            for (size_t j = 0; j < dim; j++){
-                score[i][j] = evalDotProduct(q[i], k[j], cc, dim);
+            for (size_t j = 0; j < words; j++){
+                score[i][j] = evalDotProduct(q[i], k[j], cc, words);
             }  
         }
 
         vector<Ciphertext<DCRTPoly>> output;
         evalOutput(score, v, &output, cc);
-        
-
 
         vector<int32_t> rotIndices;
         for (size_t i = 1; i < dim; i *= 2){
             rotIndices.push_back(i);
         }
         cc -> EvalAtIndexKeyGen(keys.secretKey, rotIndices);
-
-
         
-        if (!updEncVec.empty()){
+        if (!output.empty()){
 
             for (int i = 0; i < words; i++){
                 Plaintext decrypted;
-                cc -> Decrypt(keys.secretKey, updEncVec[i], &decrypted);
+                cc -> Decrypt(keys.secretKey, output[i], &decrypted);
                 decrypted -> SetLength(dim);
                 cout << decrypted->GetRealPackedValue() << endl;
 

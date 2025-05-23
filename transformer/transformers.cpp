@@ -89,6 +89,12 @@ void evalOutput(vector<vector<Ciphertext<DCRTPoly>>> score, array<Ciphertext<DCR
     }
 }
 
+void evalOutputWithResidual(vector<Ciphertext<DCRTPoly>>* output, vector<Ciphertext<DCRTPoly>> encPE, CryptoContext<DCRTPoly> cc){
+    for (size_t i = 0; i < 3; i++){
+       (*output)[i] = cc -> EvalAdd(encPE[i], (*output)[i]);
+    }
+}
+
 int main(){
     
     // Step 1: Tokenized sentences
@@ -182,6 +188,7 @@ int main(){
 
         vector<Ciphertext<DCRTPoly>> output;
         evalOutput(score, v, &output, cc);
+        evalOutputWithResidual(&output, encPE, cc);
 
         vector<int32_t> rotIndices;
         for (size_t i = 1; i < dim; i *= 2){

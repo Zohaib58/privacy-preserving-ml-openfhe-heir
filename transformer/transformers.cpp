@@ -95,6 +95,19 @@ void evalOutputWithResidual(vector<Ciphertext<DCRTPoly>>* output, vector<Ciphert
     }
 }
 
+void evalFeedForward(vector<Ciphertext<DCRTPoly>>* output, vector<double> w1, vector<double> w2, CryptoContext<DCRTPoly> cc){
+    Plaintext ptxtW1 = cc -> MakeCKKSPackedPlaintext(w1);
+    Plaintext ptxtW2 = cc -> MakeCKKSPackedPlaintext(w2);
+
+
+    for (int i = 0; i < 3; i++){
+        (*output)[i] = cc -> EvalMult((*output)[i], ptxtW1);
+        (*output)[i] = cc -> EvalMult((*output)[i], (*output)[i]);
+        (*output)[i] = cc -> EvalMult((*output)[i], ptxtW2);
+    }
+    
+}
+
 int main(){
     
     // Step 1: Tokenized sentences
@@ -189,6 +202,9 @@ int main(){
         vector<Ciphertext<DCRTPoly>> output;
         evalOutput(score, v, &output, cc);
         evalOutputWithResidual(&output, encPE, cc);
+
+        vector<double> w1 = {0.3, 0.7, 0.2, 0.5};
+        vector<double> w2 = {0.6, 0.4, 0.8, 0.1};
 
         vector<int32_t> rotIndices;
         for (size_t i = 1; i < dim; i *= 2){

@@ -206,6 +206,8 @@ int main(){
         vector<double> w1 = {0.3, 0.7, 0.2, 0.5};
         vector<double> w2 = {0.6, 0.4, 0.8, 0.1};
 
+        evalFeedForward(&output, w1, w2, cc);
+
         vector<int32_t> rotIndices;
         for (size_t i = 1; i < dim; i *= 2){
             rotIndices.push_back(i);
@@ -230,9 +232,3 @@ int main(){
 
       
 }
-    
-
-
-        
-
-        

@@ -40,6 +40,25 @@ EmbeddingMatrix addPositionalEncoding(const EmbeddingMatrix& embeddings){
     return peMatrix;
 }
 
+
+vector<double> flattenMatrix(EmbeddingMatrix matrix){
+    vector<double> flatVec;
+    size_t rows = matrix.size();
+    size_t cols = matrix[0].size();
+    
+    for (size_t i = 0; i < rows; i++){
+        for (size_t j = 0; j < cols; j++){
+            flatVec.push_back(matrix[i][j]);
+        }
+    }
+
+    return flatVec;
+}
+
+Plaintext MakeCKKSPackedTokens(vector<double> flattenPE, CryptoContext<DCRTPoly> cc){
+    return cc->MakeCKKSPackedPlaintext(flattenPE);
+}
+
 // Calculates the k-th diagonal of a matrix
 vector<double> calculateDiagonal(const EmbeddingMatrix& mat, int diagNum){
     size_t size = mat.size();
@@ -150,12 +169,13 @@ int main() {
     for (size_t i = 0; i < dim; i++) rotIndices.push_back(i);
     cc->EvalAtIndexKeyGen(keys.secretKey, rotIndices);
 
-    vector<Ciphertext<DCRTPoly>> encPE;
-    for (size_t i = 0; i < words; i++) {
-        Plaintext ptxt = cc->MakeCKKSPackedPlaintext(peMatrix[i]);
-        encPE.push_back(cc->Encrypt(keys.publicKey, ptxt));
-    }
-
+    Ciphertext<DCRTPoly> encPE;
+    
+    vector<double> flattenPE = flattenMatrix(peMatrix);
+    Plaintext ptxt;
+    ptxt = MakeCKKSPackedTokens(flattenPE, cc);
+    encPE = cc->Encrypt(keys.publicKey, ptxt);
+    
     EmbeddingMatrix W_Q = {{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}, {0.9, 1.0, 1.1, 1.2}, {1.3, 1.4, 1.5, 1.6}};
     EmbeddingMatrix W_K = {{0.2, 0.1, 0.4, 0.3}, {0.6, 0.5, 0.8, 0.7}, {1.0, 0.9, 1.2, 1.1}, {1.4, 1.3, 1.6, 1.5}};
     EmbeddingMatrix W_V = {{0.3, 0.4, 0.1, 0.2}, {0.7, 0.8, 0.5, 0.6}, {1.1, 1.2, 0.9, 1.0}, {1.5, 1.6, 1.3, 1.4}};

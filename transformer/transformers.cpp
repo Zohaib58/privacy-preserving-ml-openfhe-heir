@@ -59,7 +59,7 @@ Plaintext MakeCKKSPackedTokens(vector<double> flattenPE, CryptoContext<DCRTPoly>
     return cc->MakeCKKSPackedPlaintext(flattenPE);
 }
 
-// Calculates the k-th diagonal of a matrix
+
 vector<double> calculateDiagonal(const EmbeddingMatrix& mat, int diagNum){
     size_t size = mat.size();
     vector<double> diagonalMat;
@@ -70,25 +70,36 @@ vector<double> calculateDiagonal(const EmbeddingMatrix& mat, int diagNum){
 }
 
 // Applies diagonal encoding based matrix-vector multiplication
-array<Ciphertext<DCRTPoly>, 3> applyDiagonalProjection(const vector<Ciphertext<DCRTPoly>>& encPE,
+Ciphertext<DCRTPoly> applyDiagonalProjection(const Ciphertext<DCRTPoly>& encPE,
                                                        const EmbeddingMatrix& W_,
-                                                       CryptoContext<DCRTPoly> cc) {
-    const size_t words = 3;
-    const size_t dim = 4;
-    array<Ciphertext<DCRTPoly>, words> p;
+                                                       CryptoContext<DCRTPoly> cc,
+                                                        auto keys) {
+    const size_t words = W_.size();
+    const size_t dim = W_[0].size();
+    const size_t rows = words * dim;
 
-    for (size_t i = 0; i < words; i++) {
-        const auto& encTok = encPE[i];
-        for (int j = 0; j < dim; j++){
-            auto product = cc -> EvalMult((cc -> EvalRotate(encTok, j)), cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_, j))); // Code optimization needed - make plaintext once
-            p[i] = (j==0) ? product : cc -> EvalAdd(p[i], product) ;
-        }
+    Ciphertext<DCRTPoly> p;
+
+    for (int j = 0; j < dim; j++){
+
+
+        auto rotated =cc -> EvalRotate(encPE, j);
+        auto product = cc -> EvalMult((rotated), cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_, j))); // Code optimization needed - make plaintext once
+        
+        Plaintext decrypted;
+        cc->Decrypt(keys.secretKey, rotated, &decrypted);  
+        decrypted->SetLength(12);
+        cout << decrypted->GetRealPackedValue();    
+
+        p = (j==0) ? product : cc -> EvalAdd(p, product) ;
     }
+
+ 
     return p;
 }
 
 
-
+/*
 // Computes dot product between two ciphertexts
 Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
                                     const Ciphertext<DCRTPoly>& k,
@@ -135,6 +146,9 @@ void evalFeedForward(vector<Ciphertext<DCRTPoly>>* output,
     }
 } 
 
+*/
+// Calculates the k-th diagonal of a matrix
+
 int main() {
     EmbeddingMatrix embeddings = {
         {0.1, 0.3, 0.2, 0.05},  // "the"
@@ -144,7 +158,7 @@ int main() {
 
     uint32_t scaleModSize = 50;
     uint32_t multDepth = 6;
-    uint32_t batchSize = 4;
+    uint32_t batchSize = 16; // to accomodate all tokens into single ciphertext
 
     CCParams<CryptoContextCKKSRNS> parameters;
     parameters.SetScalingModSize(scaleModSize);
@@ -169,21 +183,26 @@ int main() {
     for (size_t i = 0; i < dim; i++) rotIndices.push_back(i);
     cc->EvalAtIndexKeyGen(keys.secretKey, rotIndices);
 
-    Ciphertext<DCRTPoly> encPE;
     
     vector<double> flattenPE = flattenMatrix(peMatrix);
     Plaintext ptxt;
     ptxt = MakeCKKSPackedTokens(flattenPE, cc);
+    Ciphertext<DCRTPoly> encPE;
     encPE = cc->Encrypt(keys.publicKey, ptxt);
-    
+
+    cout << "Packed PE Plaintext: " << ptxt->GetRealPackedValue() << endl;
+
+
     EmbeddingMatrix W_Q = {{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}, {0.9, 1.0, 1.1, 1.2}, {1.3, 1.4, 1.5, 1.6}};
     EmbeddingMatrix W_K = {{0.2, 0.1, 0.4, 0.3}, {0.6, 0.5, 0.8, 0.7}, {1.0, 0.9, 1.2, 1.1}, {1.4, 1.3, 1.6, 1.5}};
     EmbeddingMatrix W_V = {{0.3, 0.4, 0.1, 0.2}, {0.7, 0.8, 0.5, 0.6}, {1.1, 1.2, 0.9, 1.0}, {1.5, 1.6, 1.3, 1.4}};
 
-    auto q = applyDiagonalProjection(encPE, W_Q, cc);
-    auto k = applyDiagonalProjection(encPE, W_K, cc);
-    auto v = applyDiagonalProjection(encPE, W_V, cc);
+    
+    auto q = applyDiagonalProjection(encPE, W_Q, cc, keys);
+    auto k = applyDiagonalProjection(encPE, W_K, cc, keys);
+    auto v = applyDiagonalProjection(encPE, W_V, cc, keys);
 
+    /*
     DotProdMatrix score(words, vector<Ciphertext<DCRTPoly>>(words));
     for (size_t i = 0; i < words; i++) {
         for (size_t j = 0; j < words; j++) {
@@ -199,11 +218,6 @@ int main() {
     vector<double> w2 = {0.6, 0.4, 0.8, 0.1};
     evalFeedForward(&output, w1, w2, cc);
 
-    for (size_t i = 0; i < words; i++) {
-        Plaintext decrypted;
-        cc->Decrypt(keys.secretKey, output[i], &decrypted);
-        decrypted->SetLength(dim);
-
-        cout << decrypted->GetRealPackedValue() << endl;
-    }
+    */
+    
 }

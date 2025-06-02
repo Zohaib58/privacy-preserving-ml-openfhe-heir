@@ -60,49 +60,43 @@ Plaintext MakeCKKSPackedTokens(vector<double> flattenPE, CryptoContext<DCRTPoly>
 }
 
 
-vector<double> calculateDiagonal(const EmbeddingMatrix& mat, int diagNum){
-    size_t size = 3;
-    size_t dim = mat[0].size();
-    size_t total_slots = size * dim;
+vector<double> calculateDiagonal(const EmbeddingMatrix& W, int diagNum) {
+    size_t words = W.size();          // number of rows
+    size_t dim = W[0].size();         // number of columns
+    size_t total_slots = words * dim;
 
-    vector<double> diagonalMat;
-    for (size_t i = 0; i < total_slots; i++) {
-        size_t orig_idx = (i + diagNum) % size;
-        size_t col = orig_idx % dim; 
-        size_t row = (col + diagNum) % dim;
+    vector<double> diag(total_slots, 0.0);
 
-        diagonalMat.push_back(mat[row][col]);
+    for (size_t row = 0; row < words; ++row) {
+        for (size_t col = 0; col < dim; ++col) {
+            size_t original_index = row * dim + col;
+            size_t rotated_index = (original_index + diagNum) % total_slots;
+            diag[rotated_index] = W[row][col];
+        }
     }
-    return diagonalMat;
+
+    return diag;
 }
 
 // Applies diagonal encoding based matrix-vector multiplication
 Ciphertext<DCRTPoly> applyDiagonalProjection(const Ciphertext<DCRTPoly>& encPE,
                                                        const EmbeddingMatrix& W_,
-                                                       CryptoContext<DCRTPoly> cc,
-                                                        auto keys) {
+                                                       CryptoContext<DCRTPoly> cc) {
     const size_t words = W_.size();
     const size_t dim = W_[0].size();
     const size_t rows = words * dim;
+    const size_t total_slots = words * dim;
 
-    Ciphertext<DCRTPoly> p;
-
-    for (int i = 0; i < rows; i += words + 1){
-        for (int j = 0; j < dim; j++){
-            auto rotated = cc -> EvalRotate(encPE, j + i);
-            auto product = cc -> EvalMult((rotated), cc-> MakeCKKSPackedPlaintext(calculateDiagonal(W_, j))); // Code optimization needed - make plaintext once
-            
-            Plaintext decrypted;
-            cc->Decrypt(keys.secretKey, rotated, &decrypted);  
-            decrypted->SetLength(12);
-            cout << decrypted->GetRealPackedValue();    
-
-            p = (j==0) ? product : cc -> EvalAdd(p, product);
-        }
+    vector<Plaintext> diagMat;
+    for (size_t h = 0; h < total_slots; h++) {
+        diagMat.push_back(cc->MakeCKKSPackedPlaintext(calculateDiagonal(W_, h)));
     }
-
     
-
+    Ciphertext<DCRTPoly> p;
+    for (int j = 0; j < total_slots; j++){
+        auto product = cc -> EvalMult(cc -> EvalRotate(encPE, j), diagMat[j]); 
+        p = (j==0) ? product : cc -> EvalAdd(p, product);
+    }
  
     return p;
 }
@@ -207,9 +201,9 @@ int main() {
     EmbeddingMatrix W_V = {{0.3, 0.4, 0.1, 0.2}, {0.7, 0.8, 0.5, 0.6}, {1.1, 1.2, 0.9, 1.0}, {1.5, 1.6, 1.3, 1.4}};
 
     
-    auto q = applyDiagonalProjection(encPE, W_Q, cc, keys);
-    auto k = applyDiagonalProjection(encPE, W_K, cc, keys);
-    auto v = applyDiagonalProjection(encPE, W_V, cc, keys);
+    auto q = applyDiagonalProjection(encPE, W_Q, cc);
+    auto k = applyDiagonalProjection(encPE, W_K, cc);
+    auto v = applyDiagonalProjection(encPE, W_V, cc);
 
     /*
     DotProdMatrix score(words, vector<Ciphertext<DCRTPoly>>(words));

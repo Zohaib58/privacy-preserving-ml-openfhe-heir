@@ -102,7 +102,7 @@ Ciphertext<DCRTPoly> applyDiagonalProjection(const Ciphertext<DCRTPoly>& encPE,
 }
 
 
-/*
+
 // Computes dot product between two ciphertexts
 Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
                                     const Ciphertext<DCRTPoly>& k,
@@ -111,6 +111,7 @@ Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
     return cc->EvalSum(cc->EvalMult(q, k), dim);
 }
 
+/*
 // Performs attention-weighted sum of values
 void evalOutput(const vector<vector<Ciphertext<DCRTPoly>>>& score,
                 const array<Ciphertext<DCRTPoly>, 3>& v,
@@ -205,14 +206,10 @@ int main() {
     auto k = applyDiagonalProjection(encPE, W_K, cc);
     auto v = applyDiagonalProjection(encPE, W_V, cc);
 
-    /*
-    DotProdMatrix score(words, vector<Ciphertext<DCRTPoly>>(words));
-    for (size_t i = 0; i < words; i++) {
-        for (size_t j = 0; j < words; j++) {
-            score[i][j] = evalDotProduct(q[i], k[j], cc, dim);
-        }
-    }
+    
+    Ciphertext<DCRTPoly> score = evalDotProduct(q, k, cc, dim * 3);
 
+    /*
     vector<Ciphertext<DCRTPoly>> output;
     evalOutput(score, v, &output, cc);
     evalOutputWithResidual(&output, encPE, cc);

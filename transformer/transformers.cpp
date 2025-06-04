@@ -108,13 +108,56 @@ Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
                                     const Ciphertext<DCRTPoly>& k,
                                     CryptoContext<DCRTPoly> cc,
                                     size_t dim) {
-    return cc->EvalSum(cc->EvalMult(q, k), dim);
+                         
+    vector<Ciphertext<DCRTPoly>> score(9);
+
+    int count = 0;
+    for (size_t i = 0; i < 12; i += 4){ // for q[i]
+        
+        vector<double> mask(12, 0.0);
+        for (size_t k = i; k < i + 4; k++){
+                mask[i] = 1;
+        }
+        
+        
+        // vec to store dot products
+        int count2 = 0;
+        for (size_t j = 0; j < 12; j+=4){// for k[i]
+            
+            
+
+            // convert mask to plaintext
+            
+            // evalmult of q with mask
+            //cc -> EvalMult(q, cc -> MakeCKKSPackedPlaintext(mask));
+            // evalmult of q with evalrotate(j) of k
+            //cc -> EvalRotate(k, j);
+
+            auto scalar = cc -> EvalMult(cc -> EvalMult(q, cc -> MakeCKKSPackedPlaintext(mask)), cc -> EvalRotate(k, j));
+            score[count + count2] = scalar;
+            ++count2;
+            
+        }
+        count += count2 + 1;
+        // convert to plainText nd store as slots in the vector   
+        
+    }
+    
+
+    Ciphertext<DCRTPoly> score2 = score[0];
+
+    for (int l = 1; l < 9; l++){
+        auto shifted = cc -> EvalRotate(score[l], -l);
+        score2 = cc -> EvalAdd(score2, shifted);
+    }
+    
 }
+
 
 /*
 // Performs attention-weighted sum of values
-void evalOutput(const vector<vector<Ciphertext<DCRTPoly>>>& score,
-                const array<Ciphertext<DCRTPoly>, 3>& v,
+void evalOutput(const Ciphertext<DCRTPoly> score,
+                const Ciphertext<DCRTPoly>, 3>& v,
                 vector<Ciphertext<DCRTPoly>>* output,
                 CryptoContext<DCRTPoly> cc) {
     output->resize(3);
@@ -125,6 +168,7 @@ void evalOutput(const vector<vector<Ciphertext<DCRTPoly>>>& score,
         }
     }
 }
+
 
 // Adds residual connection to output
 void evalOutputWithResidual(vector<Ciphertext<DCRTPoly>>* output,
@@ -209,9 +253,12 @@ int main() {
     
     Ciphertext<DCRTPoly> score = evalDotProduct(q, k, cc, dim * 3);
 
+    
     /*
     vector<Ciphertext<DCRTPoly>> output;
     evalOutput(score, v, &output, cc);
+    
+    
     evalOutputWithResidual(&output, encPE, cc);
 
     vector<double> w1 = {0.3, 0.7, 0.2, 0.5};

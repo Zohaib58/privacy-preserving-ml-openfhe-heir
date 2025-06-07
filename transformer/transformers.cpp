@@ -84,16 +84,14 @@ Ciphertext<DCRTPoly> applyDiagonalProjection(const Ciphertext<DCRTPoly>& encPE,
                                                        CryptoContext<DCRTPoly> cc) {
     const size_t words = W_.size();
     const size_t dim = W_[0].size();
-    const size_t rows = words * dim;
-    const size_t total_slots = words * dim;
-
+    
     vector<Plaintext> diagMat;
-    for (size_t h = 0; h < total_slots; h++) {
+    for (size_t h = 0; h < 12; h++) {
         diagMat.push_back(cc->MakeCKKSPackedPlaintext(calculateDiagonal(W_, h)));
     }
     
     Ciphertext<DCRTPoly> p;
-    for (int j = 0; j < total_slots; j++){
+    for (int j = 0; j < 12; j++){
         auto product = cc -> EvalMult(cc -> EvalRotate(encPE, j), diagMat[j]); 
         p = (j==0) ? product : cc -> EvalAdd(p, product);
     }
@@ -107,25 +105,21 @@ Ciphertext<DCRTPoly> applyDiagonalProjection(const Ciphertext<DCRTPoly>& encPE,
 Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
                                     const Ciphertext<DCRTPoly>& k,
                                     CryptoContext<DCRTPoly> cc,
+                                    size_t tokenCount, size_t slots,
                                     size_t dim) {
                          
-    vector<Ciphertext<DCRTPoly>> score(9);
+    
+    vector<Ciphertext<DCRTPoly>> score;
 
-    int count = 0;
-    for (size_t i = 0; i < 12; i += 4){ // for q[i]
+    for (size_t i = 0; i < slots; i += dim){ // for q[i]
         
-        vector<double> mask(12, 0.0);
-        for (size_t k = i; k < i + 4; k++){
-                mask[i] = 1;
-        }
+        vector<double> mask(slots, 0.0);
+        for (size_t m = i; m < i + 4; m++){
+            mask[m] = 1;
+        }                
         
+        for (size_t j = 0; j < slots; j+=dim){// for k[i]
         
-        // vec to store dot products
-        int count2 = 0;
-        for (size_t j = 0; j < 12; j+=4){// for k[i]
-            
-            
-
             // convert mask to plaintext
             
             // evalmult of q with mask
@@ -134,26 +128,37 @@ Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
             //cc -> EvalRotate(k, j);
 
             auto scalar = cc -> EvalMult(cc -> EvalMult(q, cc -> MakeCKKSPackedPlaintext(mask)), cc -> EvalRotate(k, j));
-            score[count + count2] = scalar;
-            ++count2;
+            score.push_back(cc -> EvalSum(scalar, dim));
+            
             
         }
-        count += count2 + 1;
-        // convert to plainText nd store as slots in the vector   
+           
         
-    }
+    } 
     
 
-    Ciphertext<DCRTPoly> score2 = score[0];
+    Ciphertext<DCRTPoly> packedScores = score[0];
 
     for (int l = 1; l < 9; l++){
         auto shifted = cc -> EvalRotate(score[l], -l);
-        score2 = cc -> EvalAdd(score2, shifted);
+        packedScores = cc -> EvalAdd(packedScores, shifted);
+    }
+    
+    return packedScores;
+}
+
+// Apply SoftMax
+Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
+                                 size_t tokenCount) {
+    
+    size_t itr = tokenCount * tokenCount;
+    vector<double> mask(9, 0);
+
+    for (size_t i = 0; i < itr; i += tokenCount - 1){
+        mask[i] = 1;
     }
     
 }
-
-
 /*
 // Performs attention-weighted sum of values
 void evalOutput(const Ciphertext<DCRTPoly> score,
@@ -221,16 +226,12 @@ int main() {
 
     size_t words = embeddings.size();
     size_t dim = embeddings[0].size();
+    size_t total_slots = words * dim;
 
     EmbeddingMatrix peMatrix = addPositionalEncoding(embeddings);
 
     auto keys = cc->KeyGen();
     cc->EvalMultKeyGen(keys.secretKey);
-
-    vector<int32_t> rotIndices;
-    for (size_t i = 0; i < dim; i++) rotIndices.push_back(i);
-    cc->EvalAtIndexKeyGen(keys.secretKey, rotIndices);
-
     
     vector<double> flattenPE = flattenMatrix(peMatrix);
     Plaintext ptxt;
@@ -246,12 +247,29 @@ int main() {
     EmbeddingMatrix W_V = {{0.3, 0.4, 0.1, 0.2}, {0.7, 0.8, 0.5, 0.6}, {1.1, 1.2, 0.9, 1.0}, {1.5, 1.6, 1.3, 1.4}};
 
     
+    
+    vector<int32_t> rotIndices;
+    for (size_t i = 0; i < total_slots; i++) rotIndices.push_back(i);
+    cc->EvalAtIndexKeyGen(keys.secretKey, rotIndices);
+    
+    
     auto q = applyDiagonalProjection(encPE, W_Q, cc);
     auto k = applyDiagonalProjection(encPE, W_K, cc);
     auto v = applyDiagonalProjection(encPE, W_V, cc);
 
-    
-    Ciphertext<DCRTPoly> score = evalDotProduct(q, k, cc, dim * 3);
+    vector<int32_t> negRotIndices;
+    for (int l = 1; l < 9; l++) {
+        negRotIndices.push_back(-l);
+    }
+    cc->EvalAtIndexKeyGen(keys.secretKey, negRotIndices);
+
+    Ciphertext<DCRTPoly> score = evalDotProduct(q, k, cc, embeddings.size(), 12, dim);
+
+    Plaintext decScore;
+    cc->Decrypt(keys.secretKey, score, &decScore);
+    decScore->SetLength(embeddings.size() * embeddings.size()); // 9
+    cout << "Score slots: " << decScore->GetRealPackedValue() << endl;
+
 
     
     /*

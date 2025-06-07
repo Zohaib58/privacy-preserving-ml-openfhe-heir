@@ -147,16 +147,77 @@ Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
     return packedScores;
 }
 
+// Apply exp
+Ciphertext<DCRTPoly> applyExp(const Ciphertext<DCRTPoly>& scores,
+                                 size_t tokenCount, 
+                                 CryptoContext<DCRTPoly> cc){
+    // x^2 = scores * scores
+    auto x2 = cc->EvalMult(scores, scores);
+    
+    // x^3 = x^2 * scores
+    auto x3 = cc->EvalMult(x2, scores);
+
+    // 0.5 * x^2
+    auto x2Scaled = cc->EvalMult(x2, 0.5);
+
+    // (1/6) * x^3 ≈ 0.1667
+    auto x3Scaled = cc->EvalMult(x3, 1.0 / 6.0);
+
+    // x + 0.5x^2
+    auto partial = cc->EvalAdd(scores, x2Scaled);
+
+    // + (1/6)x^3
+    auto poly = cc->EvalAdd(partial, x3Scaled);
+    // + 1
+    return cc->EvalAdd(poly, 1.0);
+
+}
+
+Ciphertext<DCRTPoly> approximateInverse(const Ciphertext<DCRTPoly>& x, CryptoContext<DCRTPoly> cc, size_t iter = 3) {
+    // Initial guess: use a simple negated linear approximation like -x
+    Ciphertext<DCRTPoly> y = cc->EvalMult(x, -1.0);  // crude guess
+
+    for (size_t i = 0; i < iter; i++) {
+        auto xy = cc->EvalMult(x, y);                    // xy
+        auto two_minus_xy = cc->EvalSub(2.0, xy);        // 2 - xy
+        y = cc->EvalMult(y, two_minus_xy);               // y * (2 - xy)
+    }
+
+    return y;  // Approximated 1/x
+}
+
 // Apply SoftMax
 Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
-                                 size_t tokenCount) {
+                                 size_t tokenCount, 
+                                 CryptoContext<DCRTPoly> cc) {
     
-    size_t itr = tokenCount * tokenCount;
-    vector<double> mask(9, 0);
+    size_t tot_itr = tokenCount * tokenCount;
+    Ciphertext<DCRTPoly> expScores = applyExp(scores, tokenCount, cc);
+    
+    vector<Ciphertext<DCRTPoly>> softMaxScores;
 
-    for (size_t i = 0; i < itr; i += tokenCount - 1){
-        mask[i] = 1;
+    for (size_t i = 0; i < tot_itr; i += tokenCount){
+        vector<double> mask(9, 0);
+        for (size_t j = i; j < tokenCount; j++) mask[j] = 1;
+        
+        auto slot = cc -> EvalMult(expScores, cc -> MakeCKKSPackedPlaintext(mask));
+
+        auto sum = cc -> EvalSum(slot, tokenCount);
+        auto inverse = approximateInverse(sum, cc);
+
+        softMaxScores.push_back(cc -> EvalMult(slot, inverse));
+             
+
     }
+
+    Ciphertext<DCRTPoly> result = softMaxScores[0];
+   
+    for (size_t i = 1; i < softMaxScores.size(); i++) {
+        auto rotated = cc->EvalRotate(softMaxScores[i], -(i * tokenCount));
+        result = cc->EvalAdd(result, rotated);
+    }
+    return result;
+
     
 }
 /*
@@ -209,8 +270,8 @@ int main() {
         {0.3, 0.4, 0.1, 0.2}    // "sat"
     };
 
-    uint32_t scaleModSize = 50;
-    uint32_t multDepth = 6;
+    uint32_t scaleModSize = 55;
+    uint32_t multDepth = 16;
     uint32_t batchSize = 16; // to accomodate all tokens into single ciphertext
 
     CCParams<CryptoContextCKKSRNS> parameters;
@@ -265,8 +326,10 @@ int main() {
 
     Ciphertext<DCRTPoly> score = evalDotProduct(q, k, cc, embeddings.size(), 12, dim);
 
+    Ciphertext<DCRTPoly> softMaxScore = applySoftMax(score, words, cc);
+    
     Plaintext decScore;
-    cc->Decrypt(keys.secretKey, score, &decScore);
+    cc->Decrypt(keys.secretKey, softMaxScore, &decScore);
     decScore->SetLength(embeddings.size() * embeddings.size()); // 9
     cout << "Score slots: " << decScore->GetRealPackedValue() << endl;
 

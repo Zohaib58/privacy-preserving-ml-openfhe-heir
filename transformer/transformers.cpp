@@ -152,11 +152,11 @@ Ciphertext<DCRTPoly> applyExp(const Ciphertext<DCRTPoly>& scores,
                                  size_t tokenCount, 
                                  CryptoContext<DCRTPoly> cc){
     // x^2 = scores * scores
-    auto x2 = cc->EvalMult(scores, scores);
+    auto x2 = cc->EvalMultAndRelinearize(scores, scores);
     x2 = cc->ModReduce(x2);
     
     // x^3 = x^2 * scores
-    auto x3 = cc->EvalMult(x2, scores);
+    auto x3 = cc->EvalMultAndRelinearize(x2, scores);
     x3 = cc->ModReduce(x3);
 
     // 0.5 * x^2
@@ -182,10 +182,10 @@ Ciphertext<DCRTPoly> approximateInverse(const Ciphertext<DCRTPoly>& x, CryptoCon
     Ciphertext<DCRTPoly> y = cc->EvalMult(x, -1.0);  // crude guess
 
     for (size_t i = 0; i < iter; i++) {
-        auto xy = cc->EvalMult(x, y);     
+        auto xy = cc->EvalMultAndRelinearize(x, y);     
         xy = cc->ModReduce(xy);               // xy
         auto two_minus_xy = cc->EvalSub(2.0, xy);        // 2 - xy
-        y = cc->EvalMult(y, two_minus_xy); 
+        y = cc->EvalMultAndRelinearize(y, two_minus_xy); 
         y = cc->ModReduce(y);              // y * (2 - xy)
     }
 
@@ -211,7 +211,7 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
         auto sum = cc -> EvalSum(slot, tokenCount);
         auto inverse = approximateInverse(sum, cc);
 
-        softMaxScores.push_back(cc -> EvalMult(slot, inverse));
+        softMaxScores.push_back(cc -> EvalMultAndRelinearize(slot, inverse));
              
         softMaxScores.back() = cc->ModReduce(softMaxScores.back());
 
@@ -285,7 +285,7 @@ int main() {
     parameters.SetScalingModSize(scaleModSize);
     parameters.SetMultiplicativeDepth(multDepth);
     parameters.SetBatchSize(batchSize);
-    parameters.SetScalingTechnique(FIXEDAUTO);
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
     
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
@@ -336,12 +336,18 @@ int main() {
 
     Ciphertext<DCRTPoly> score = evalDotProduct(q, k, cc, embeddings.size(), 12, dim);
 
-    Ciphertext<DCRTPoly> softMaxScore = applySoftMax(score, words, cc);
-    
     Plaintext decScore;
-    cc->Decrypt(keys.secretKey, softMaxScore, &decScore);
+    cc->Decrypt(keys.secretKey, score, &decScore);
     decScore->SetLength(embeddings.size() * embeddings.size()); // 9
     cout << "Score slots: " << decScore->GetRealPackedValue() << endl;
+
+
+    Ciphertext<DCRTPoly> softMaxScore = applySoftMax(score, words, cc);
+    
+    Plaintext decScore2;
+    cc->Decrypt(keys.secretKey, softMaxScore, &decScore2);
+    decScore2->SetLength(embeddings.size() * embeddings.size()); // 9
+    cout << "Score slots: " << decScore2->GetRealPackedValue() << endl;
 
 
     

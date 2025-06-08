@@ -153,15 +153,19 @@ Ciphertext<DCRTPoly> applyExp(const Ciphertext<DCRTPoly>& scores,
                                  CryptoContext<DCRTPoly> cc){
     // x^2 = scores * scores
     auto x2 = cc->EvalMult(scores, scores);
+    x2 = cc->ModReduce(x2);
     
     // x^3 = x^2 * scores
     auto x3 = cc->EvalMult(x2, scores);
+    x3 = cc->ModReduce(x3);
 
     // 0.5 * x^2
     auto x2Scaled = cc->EvalMult(x2, 0.5);
+    x2Scaled = cc->ModReduce(x2Scaled);
 
     // (1/6) * x^3 ≈ 0.1667
     auto x3Scaled = cc->EvalMult(x3, 1.0 / 6.0);
+    x3Scaled = cc->ModReduce(x3Scaled);
 
     // x + 0.5x^2
     auto partial = cc->EvalAdd(scores, x2Scaled);
@@ -173,14 +177,16 @@ Ciphertext<DCRTPoly> applyExp(const Ciphertext<DCRTPoly>& scores,
 
 }
 
-Ciphertext<DCRTPoly> approximateInverse(const Ciphertext<DCRTPoly>& x, CryptoContext<DCRTPoly> cc, size_t iter = 3) {
+Ciphertext<DCRTPoly> approximateInverse(const Ciphertext<DCRTPoly>& x, CryptoContext<DCRTPoly> cc, size_t iter = 1) {
     // Initial guess: use a simple negated linear approximation like -x
     Ciphertext<DCRTPoly> y = cc->EvalMult(x, -1.0);  // crude guess
 
     for (size_t i = 0; i < iter; i++) {
-        auto xy = cc->EvalMult(x, y);                    // xy
+        auto xy = cc->EvalMult(x, y);     
+        xy = cc->ModReduce(xy);               // xy
         auto two_minus_xy = cc->EvalSub(2.0, xy);        // 2 - xy
-        y = cc->EvalMult(y, two_minus_xy);               // y * (2 - xy)
+        y = cc->EvalMult(y, two_minus_xy); 
+        y = cc->ModReduce(y);              // y * (2 - xy)
     }
 
     return y;  // Approximated 1/x
@@ -207,6 +213,7 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
 
         softMaxScores.push_back(cc -> EvalMult(slot, inverse));
              
+        softMaxScores.back() = cc->ModReduce(softMaxScores.back());
 
     }
 
@@ -270,20 +277,23 @@ int main() {
         {0.3, 0.4, 0.1, 0.2}    // "sat"
     };
 
-    uint32_t scaleModSize = 55;
-    uint32_t multDepth = 16;
+    uint32_t scaleModSize = 59;
+    uint32_t multDepth = 20;
     uint32_t batchSize = 16; // to accomodate all tokens into single ciphertext
 
     CCParams<CryptoContextCKKSRNS> parameters;
     parameters.SetScalingModSize(scaleModSize);
     parameters.SetMultiplicativeDepth(multDepth);
     parameters.SetBatchSize(batchSize);
+    parameters.SetScalingTechnique(FIXEDAUTO);
+    
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
     cc->Enable(PKE);
     cc->Enable(KEYSWITCH);
     cc->Enable(LEVELEDSHE);
     cc->Enable(ADVANCEDSHE);
+    
 
     size_t words = embeddings.size();
     size_t dim = embeddings[0].size();

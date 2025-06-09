@@ -200,7 +200,7 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
     int delta2 = 4;
 
     // Shift: subtract an approximate max
-    auto shift = cc->EvalSub(scores, 1.0); // crude shift approximation
+    auto shift = cc->EvalSub(scores, 617.613); // crude shift approximation
     auto scaled = cc->EvalMult(shift, 1.0 / (delta1 * delta2));
     
 

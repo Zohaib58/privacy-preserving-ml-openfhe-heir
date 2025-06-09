@@ -153,19 +153,19 @@ Ciphertext<DCRTPoly> applyExp(const Ciphertext<DCRTPoly>& scores,
                                  CryptoContext<DCRTPoly> cc){
     // x^2 = scores * scores
     auto x2 = cc->EvalMultAndRelinearize(scores, scores);
-    x2 = cc->ModReduce(x2);
+    
     
     // x^3 = x^2 * scores
     auto x3 = cc->EvalMultAndRelinearize(x2, scores);
-    x3 = cc->ModReduce(x3);
+    
 
     // 0.5 * x^2
     auto x2Scaled = cc->EvalMult(x2, 0.5);
-    x2Scaled = cc->ModReduce(x2Scaled);
+    //x2Scaled = cc->ModReduce(x2Scaled);
 
     // (1/6) * x^3 ≈ 0.1667
     auto x3Scaled = cc->EvalMult(x3, 1.0 / 6.0);
-    x3Scaled = cc->ModReduce(x3Scaled);
+    //x3Scaled = cc->ModReduce(x3Scaled);
 
     // x + 0.5x^2
     auto partial = cc->EvalAdd(scores, x2Scaled);
@@ -183,49 +183,64 @@ Ciphertext<DCRTPoly> approximateInverse(const Ciphertext<DCRTPoly>& x, CryptoCon
 
     for (size_t i = 0; i < iter; i++) {
         auto xy = cc->EvalMultAndRelinearize(x, y);     
-        xy = cc->ModReduce(xy);               // xy
+                       // xy
         auto two_minus_xy = cc->EvalSub(2.0, xy);        // 2 - xy
         y = cc->EvalMultAndRelinearize(y, two_minus_xy); 
-        y = cc->ModReduce(y);              // y * (2 - xy)
+                      // y * (2 - xy)
     }
-
+    //y = cc->ModReduce(y);
     return y;  // Approximated 1/x
 }
 
 // Apply SoftMax
 Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
-                                 size_t tokenCount, 
-                                 CryptoContext<DCRTPoly> cc) {
-    
-    size_t tot_itr = tokenCount * tokenCount;
-    Ciphertext<DCRTPoly> expScores = applyExp(scores, tokenCount, cc);
-    
-    vector<Ciphertext<DCRTPoly>> softMaxScores;
+                                   size_t tokenCount,
+                                   CryptoContext<DCRTPoly> cc) {
+    int delta1 = 3;
+    int delta2 = 4;
 
-    for (size_t i = 0; i < tot_itr; i += tokenCount){
-        vector<double> mask(9, 0);
-        for (size_t j = i; j < tokenCount; j++) mask[j] = 1;
+    // Shift: subtract an approximate max
+    auto shift = cc->EvalSub(scores, 1.0); // crude shift approximation
+    auto scaled = cc->EvalMult(shift, 1.0 / (delta1 * delta2));
+    
+
+    // --- Phase 1: Approximate exp(x / (d1 * d2)) ---
+    auto exp1 = applyExp(scaled, tokenCount, cc);
+
+    // Raise to power delta1
+    Ciphertext<DCRTPoly> expPower = exp1;
+    for (int i = 1; i < delta1; i++) {
+        expPower = cc->EvalMultAndRelinearize(expPower, exp1);
         
-        auto slot = cc -> EvalMult(expScores, cc -> MakeCKKSPackedPlaintext(mask));
-
-        auto sum = cc -> EvalSum(slot, tokenCount);
-        auto inverse = approximateInverse(sum, cc);
-
-        softMaxScores.push_back(cc -> EvalMultAndRelinearize(slot, inverse));
-             
-        softMaxScores.back() = cc->ModReduce(softMaxScores.back());
-
     }
-
-    Ciphertext<DCRTPoly> result = softMaxScores[0];
-   
-    for (size_t i = 1; i < softMaxScores.size(); i++) {
-        auto rotated = cc->EvalRotate(softMaxScores[i], -(i * tokenCount));
-        result = cc->EvalAdd(result, rotated);
-    }
-    return result;
 
     
+
+    // Normalize by sum
+    auto sumExp = cc->EvalSum(expPower, tokenCount);
+    auto invSum = approximateInverse(sumExp, cc, 2);
+    auto y = cc->EvalMult(expPower, invSum);
+    
+
+    // --- Phase 2: Squaring and re-normalizing log2(delta2) times ---
+    int steps = log2(delta2);
+    for (int i = 0; i < steps; i++) {
+        auto y2 = cc->EvalMult(y, y);
+        
+        auto sumY = cc->EvalSum(y2, tokenCount);
+        auto invSumY = approximateInverse(sumY, cc, 2);
+
+        // // to resolve drop error encountered
+        // while (invSumY->GetLevel() > y2->GetLevel()) {
+        //     invSumY = cc->ModReduce(invSumY);
+        // }
+
+        
+        y = cc->EvalMult(y2, invSumY);
+        
+    }
+    //y = cc->ModReduce(y);
+    return y;
 }
 /*
 // Performs attention-weighted sum of values
@@ -282,10 +297,12 @@ int main() {
     uint32_t batchSize = 16; // to accomodate all tokens into single ciphertext
 
     CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetFirstModSize(60); 
     parameters.SetScalingModSize(scaleModSize);
     parameters.SetMultiplicativeDepth(multDepth);
     parameters.SetBatchSize(batchSize);
     parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    
     
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);

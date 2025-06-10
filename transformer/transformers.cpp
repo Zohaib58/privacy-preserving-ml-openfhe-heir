@@ -67,8 +67,8 @@ vector<double> calculateDiagonal(const EmbeddingMatrix& W, int diagNum) {
 
     vector<double> diag(total_slots, 0.0);
 
-    for (size_t row = 0; row < words; ++row) {
-        for (size_t col = 0; col < dim; ++col) {
+    for (size_t row = 0; row < words; row++) {
+        for (size_t col = 0; col < dim; col++) {
             size_t original_index = row * dim + col;
             size_t rotated_index = (original_index + diagNum) % total_slots;
             diag[rotated_index] = W[row][col];

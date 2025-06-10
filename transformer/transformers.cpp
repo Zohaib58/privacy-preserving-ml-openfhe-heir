@@ -244,10 +244,6 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
     //y = cc->ModReduce(y);
     
     y = cc -> EvalBootstrap(y);
-    y = cc -> EvalBootstrap(y);
-    y = cc -> EvalBootstrap(y);
-    y = cc -> EvalBootstrap(y);
-    y = cc -> EvalBootstrap(y);
 
     return y;
 }

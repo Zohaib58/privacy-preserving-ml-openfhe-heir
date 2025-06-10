@@ -127,7 +127,7 @@ Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
             // evalmult of q with evalrotate(j) of k
             //cc -> EvalRotate(k, j);
 
-            auto scalar = cc -> EvalMult(cc -> EvalMult(q, cc -> MakeCKKSPackedPlaintext(mask)), cc -> EvalRotate(k, j));
+            auto scalar = cc -> EvalMult(cc -> EvalMult(q, cc -> MakeCKKSPackedPlaintext(mask)), cc -> EvalRotate(k, (j - i) * dim));
             score.push_back(cc -> EvalSum(scalar, dim));
             
             
@@ -298,7 +298,7 @@ int main() {
     };
 
     std::vector<uint32_t> levelBudget = {4, 4};
-    uint32_t levelsAfter = 10;
+    uint32_t levelsAfter = 16;
 
     // Use recommended bootstrap depth computation
     SecretKeyDist secretKeyDist = UNIFORM_TERNARY;

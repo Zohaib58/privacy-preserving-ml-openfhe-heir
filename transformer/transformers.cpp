@@ -127,7 +127,7 @@ Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
             // evalmult of q with evalrotate(j) of k
             //cc -> EvalRotate(k, j);
 
-            auto scalar = cc -> EvalMult(cc -> EvalMult(q, cc -> MakeCKKSPackedPlaintext(mask)), cc -> EvalRotate(k, (j - i) * dim));
+            auto scalar = cc -> EvalMult(cc -> EvalMult(q, cc -> MakeCKKSPackedPlaintext(mask)), cc -> EvalRotate(k, j - i));
             score.push_back(cc -> EvalSum(scalar, dim));
             
             
@@ -362,7 +362,7 @@ int main() {
     auto v = applyDiagonalProjection(encPE, W_V, cc);
 
     vector<int32_t> negRotIndices;
-    for (int l = 1; l < 9; l++) {
+    for (int l = 1; l < 12; l++) {
         negRotIndices.push_back(-l);
     }
     cc->EvalAtIndexKeyGen(keys.secretKey, negRotIndices);

@@ -200,7 +200,7 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
     int delta2 = 4;
 
     // Shift: subtract an approximate max
-    auto shift = cc->EvalSub(scores, 617.613); // crude shift approximation
+    auto shift = cc->EvalSub(scores, 342.468); // crude shift approximation
     auto scaled = cc->EvalMult(shift, 1.0 / (delta1 * delta2));
     
 
@@ -224,6 +224,8 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
 
     // --- Phase 2: Squaring and re-normalizing log2(delta2) times ---
     int steps = log2(delta2);
+    y = cc -> EvalBootstrap(y);
+
     for (int i = 0; i < steps; i++) {
         auto y2 = cc->EvalMult(y, y);
         
@@ -240,6 +242,13 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
         
     }
     //y = cc->ModReduce(y);
+    
+    y = cc -> EvalBootstrap(y);
+    y = cc -> EvalBootstrap(y);
+    y = cc -> EvalBootstrap(y);
+    y = cc -> EvalBootstrap(y);
+    y = cc -> EvalBootstrap(y);
+
     return y;
 }
 /*
@@ -292,25 +301,35 @@ int main() {
         {0.3, 0.4, 0.1, 0.2}    // "sat"
     };
 
-    uint32_t scaleModSize = 59;
-    uint32_t multDepth = 20;
-    uint32_t batchSize = 16; // to accomodate all tokens into single ciphertext
+    std::vector<uint32_t> levelBudget = {4, 4};
+    uint32_t levelsAfter = 10;
+
+    // Use recommended bootstrap depth computation
+    SecretKeyDist secretKeyDist = UNIFORM_TERNARY;
+    uint32_t bootDepth = FHECKKSRNS::GetBootstrapDepth(levelBudget, secretKeyDist);
 
     CCParams<CryptoContextCKKSRNS> parameters;
-    parameters.SetFirstModSize(60); 
-    parameters.SetScalingModSize(scaleModSize);
-    parameters.SetMultiplicativeDepth(multDepth);
-    parameters.SetBatchSize(batchSize);
+    parameters.SetSecretKeyDist(secretKeyDist);  
+    parameters.SetSecurityLevel(HEStd_NotSet);   
+
+    parameters.SetFirstModSize(60);              
+    parameters.SetScalingModSize(59);
     parameters.SetScalingTechnique(FLEXIBLEAUTO);
-    
-    
+    parameters.SetMultiplicativeDepth(levelsAfter + bootDepth);
+    parameters.SetRingDim(4096);                 // Optional but matches official
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
     cc->Enable(PKE);
     cc->Enable(KEYSWITCH);
     cc->Enable(LEVELEDSHE);
     cc->Enable(ADVANCEDSHE);
-    
+    cc->Enable(FHE);
+
+    std::cout << "Starting bootstrap setup...\n";
+    cc->EvalBootstrapSetup(levelBudget);
+    std::cout << "Bootstrap setup completed.\n";
+
+
 
     size_t words = embeddings.size();
     size_t dim = embeddings[0].size();
@@ -320,6 +339,7 @@ int main() {
 
     auto keys = cc->KeyGen();
     cc->EvalMultKeyGen(keys.secretKey);
+    cc->EvalBootstrapKeyGen(keys.secretKey, cc->GetRingDimension() / 2);  
     
     vector<double> flattenPE = flattenMatrix(peMatrix);
     Plaintext ptxt;

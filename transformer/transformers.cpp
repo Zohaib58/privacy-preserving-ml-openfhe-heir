@@ -196,8 +196,8 @@ Ciphertext<DCRTPoly> approximateInverse(const Ciphertext<DCRTPoly>& x, CryptoCon
 Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
                                    size_t tokenCount,
                                    CryptoContext<DCRTPoly> cc) {
-    int delta1 = 3;
-    int delta2 = 4;
+    int delta1 = 2;
+    int delta2 = 1;
 
     // Shift: subtract an approximate max
     auto shift = cc->EvalSub(scores, 342.468); // crude shift approximation
@@ -218,7 +218,7 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
 
     // Normalize by sum
     auto sumExp = cc->EvalSum(expPower, tokenCount);
-    auto invSum = approximateInverse(sumExp, cc, 2);
+    auto invSum = approximateInverse(sumExp, cc, 1);
     auto y = cc->EvalMult(expPower, invSum);
     
 
@@ -375,7 +375,7 @@ int main() {
     decScore->SetLength(embeddings.size() * embeddings.size()); // 9
     cout << "Score slots: " << decScore->GetRealPackedValue() << endl;
 
-
+    score = cc -> EvalBootstrap(score);
     Ciphertext<DCRTPoly> softMaxScore = applySoftMax(score, words, cc);
     
     Plaintext decScore2;

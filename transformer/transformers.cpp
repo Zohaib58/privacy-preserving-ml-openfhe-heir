@@ -311,8 +311,9 @@ int main() {
     parameters.SetFirstModSize(60);              
     parameters.SetScalingModSize(59);
     parameters.SetScalingTechnique(FLEXIBLEAUTO);
-    parameters.SetMultiplicativeDepth(levelsAfter + bootDepth);
-    parameters.SetRingDim(4096);                 // Optional but matches official
+    //parameters.SetMultiplicativeDepth(levelsAfter + bootDepth);
+    parameters.SetMultiplicativeDepth(16 + bootDepth);
+    parameters.SetRingDim(16384);                 // Optional but matches official
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
     cc->Enable(PKE);

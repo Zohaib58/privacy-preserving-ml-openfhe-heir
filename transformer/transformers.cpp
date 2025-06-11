@@ -195,7 +195,8 @@ Ciphertext<DCRTPoly> approximateInverse(const Ciphertext<DCRTPoly>& x, CryptoCon
 // Apply SoftMax
 Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
                                    size_t tokenCount,
-                                   CryptoContext<DCRTPoly> cc) {
+                                   CryptoContext<DCRTPoly> cc,
+                                lbcrypto::KeyPair<lbcrypto::DCRTPoly> keys) {
     int delta1 = 2;
     int delta2 = 1;
 
@@ -206,6 +207,11 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
 
     // --- Phase 1: Approximate exp(x / (d1 * d2)) ---
     auto exp1 = applyExp(scaled, tokenCount, cc);
+    Plaintext exp1PT;
+    cc->Decrypt(keys.secretKey, exp1, &exp1PT);
+    exp1PT->SetLength(tokenCount);
+    cout << "exp1 (after applyExp): " << exp1PT->GetRealPackedValue() << endl;
+
 
     // Raise to power delta1
     Ciphertext<DCRTPoly> expPower = exp1;
@@ -222,9 +228,11 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
     auto y = cc->EvalMult(expPower, invSum);
     
 
+    y = cc -> EvalBootstrap(y);
+    
     // --- Phase 2: Squaring and re-normalizing log2(delta2) times ---
     int steps = log2(delta2);
-    y = cc -> EvalBootstrap(y);
+    
 
     for (int i = 0; i < steps; i++) {
         auto y2 = cc->EvalMult(y, y);
@@ -297,8 +305,8 @@ int main() {
         {0.3, 0.4, 0.1, 0.2}    // "sat"
     };
 
-    std::vector<uint32_t> levelBudget = {4, 4};
-    uint32_t levelsAfter = 16;
+    std::vector<uint32_t> levelBudget = {10, 10};
+    uint32_t levelsAfter = 20;
 
     // Use recommended bootstrap depth computation
     SecretKeyDist secretKeyDist = UNIFORM_TERNARY;
@@ -306,14 +314,14 @@ int main() {
 
     CCParams<CryptoContextCKKSRNS> parameters;
     parameters.SetSecretKeyDist(secretKeyDist);  
-    parameters.SetSecurityLevel(HEStd_NotSet);   
+    parameters.SetSecurityLevel(HEStd_128_classic);  
 
     parameters.SetFirstModSize(60);              
     parameters.SetScalingModSize(59);
     parameters.SetScalingTechnique(FLEXIBLEAUTO);
     //parameters.SetMultiplicativeDepth(levelsAfter + bootDepth);
-    parameters.SetMultiplicativeDepth(16 + bootDepth);
-    parameters.SetRingDim(16384);                 // Optional but matches official
+    parameters.SetMultiplicativeDepth(levelsAfter + bootDepth);
+    parameters.SetRingDim(32768);                 
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
     cc->Enable(PKE);
@@ -375,8 +383,8 @@ int main() {
     decScore->SetLength(embeddings.size() * embeddings.size()); // 9
     cout << "Score slots: " << decScore->GetRealPackedValue() << endl;
 
-    score = cc -> EvalBootstrap(score);
-    Ciphertext<DCRTPoly> softMaxScore = applySoftMax(score, words, cc);
+    //score = cc -> EvalBootstrap(score);
+    Ciphertext<DCRTPoly> softMaxScore = applySoftMax(score, words, cc, keys);
     
     Plaintext decScore2;
     cc->Decrypt(keys.secretKey, softMaxScore, &decScore2);

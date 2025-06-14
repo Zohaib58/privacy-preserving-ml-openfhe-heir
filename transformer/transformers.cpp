@@ -78,7 +78,8 @@ Ciphertext<DCRTPoly> calculateUpperDiagonal(Ciphertext<DCRTPoly> ctxt, int diagC
         auto calc = cc -> EvalMult(ctxt, cc -> MakeCKKSPackedPlaintext(mask));
         if (first) result = calc;
         else {
-            cc -> EvalAdd(result, calc);
+            first = false;
+            result = cc -> EvalAdd(result, calc);
         }
     }
     return result;
@@ -106,6 +107,7 @@ Ciphertext<DCRTPoly> calculateLowerDiagonal(Ciphertext<DCRTPoly> ctxt, int diagC
         auto calc = cc -> EvalMult(ctxt, cc -> MakeCKKSPackedPlaintext(mask));
         if (first) result = calc;
         else {
+            first = false;
             cc -> EvalAdd(result, calc);
         }
 

@@ -59,6 +59,62 @@ Plaintext MakeCKKSPackedTokens(vector<double> flattenPE, CryptoContext<DCRTPoly>
     return cc->MakeCKKSPackedPlaintext(flattenPE);
 }
 
+/*
+for each diagNum
+A[0, 1, 2 % rowCountA, (diagNum + 0,1,2) % colCountA]
+
+*/
+Ciphertext<DCRTPoly> calculateUpperDiagonal(Ciphertext<DCRTPoly> ctxt, int diagCount, int rowSize, int colCount, CryptoContext<DCRTPoly> cc){
+    Ciphertext<DCRTPoly> result;
+    bool first = true;
+    
+    for (int i = 0; i < diagCount; i++){
+        vector<double> mask(9, 0.0);
+            
+        for (int j = 0; j < rowSize; j++){
+            mask[((j % rowSize) + (i + j) % colCount) - 1] = 1;    
+        }
+
+        auto calc = cc -> EvalMult(ctxt, cc -> MakeCKKSPackedPlaintext(mask));
+        if (first) result = calc;
+        else {
+            cc -> EvalAdd(result, calc);
+        }
+    }
+    return result;
+
+
+}
+
+/*
+    for each diagNu
+B[diagNum + 0, 1, 2 % rowCountB, (0,1,2) % colCountB]
+
+*/
+
+//refactor into prev one
+Ciphertext<DCRTPoly> calculateLowerDiagonal(Ciphertext<DCRTPoly> ctxt, int diagCount, int rowSize, int colCount, CryptoContext<DCRTPoly> cc){
+    Ciphertext<DCRTPoly> result;
+    bool first = true;
+    
+    for (int i = 0; i < diagCount; i++){
+        vector<double> mask(9, 0.0);
+            
+        for (int j = 0; j < rowSize; j++){
+            mask[((i + j) % rowSize) + (j % colCount) - 1] = 1;    
+        }
+        auto calc = cc -> EvalMult(ctxt, cc -> MakeCKKSPackedPlaintext(mask));
+        if (first) result = calc;
+        else {
+            cc -> EvalAdd(result, calc);
+        }
+
+    }
+    return result;
+
+
+}
+
 
 vector<double> calculateDiagonal(const EmbeddingMatrix& W, int diagNum) {
     size_t words = W.size();          // number of rows
@@ -99,6 +155,41 @@ Ciphertext<DCRTPoly> applyDiagonalProjection(const Ciphertext<DCRTPoly>& encPE,
     return p;
 }
 
+Ciphertext<DCRTPoly> evalDotProduct2(const Ciphertext<DCRTPoly>& q,
+                                    const Ciphertext<DCRTPoly>& k,
+                                    CryptoContext<DCRTPoly> cc,
+                                    size_t tokenCount, size_t slots,
+                                    size_t dim) {
+
+    Ciphertext<DCRTPoly> result;
+                                
+    size_t diagCount = min(tokenCount, dim);
+                                    
+    Ciphertext<DCRTPoly> qUp = calculateUpperDiagonal(q, diagCount, tokenCount, dim, cc);
+    Ciphertext<DCRTPoly> kDo = calculateLowerDiagonal(k, diagCount, tokenCount, dim, cc);
+        
+    for (size_t i = 0; i < diagCount; i++){
+        
+        int rotation = i;
+        vector<double> maskqUp(9, 0.0);
+        vector<double> maskkDo(9, 0.0);
+
+        for (size_t j = 0; j < tokenCount; j++){ // need to have something better in place of tokenCount
+            maskqUp[(j - i) % tokenCount] = 1;
+            maskkDo[i + j] = 1;
+        } 
+
+        auto maskedqUpR = cc -> EvalRotate(cc -> EvalMult(qUp, cc -> MakeCKKSPackedPlaintext(maskqUp)), rotation);
+        auto maskedkDo = cc -> EvalMult(kDo, cc -> MakeCKKSPackedPlaintext(maskkDo));
+
+        auto product = cc->EvalMult(maskedqUpR, maskedkDo);
+
+        result = (i == 0) ? product : cc->EvalAdd(result, product);
+
+
+    }
+    return result;
+}
 
 
 // Computes dot product between two ciphertexts

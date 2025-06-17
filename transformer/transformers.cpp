@@ -64,21 +64,27 @@ for each diagNum
 A[0, 1, 2 % rowCountA, (diagNum + 0,1,2) % colCountA]
 
 */
-Ciphertext<DCRTPoly> calculateUpperDiagonal(Ciphertext<DCRTPoly> ctxt, int diagCount, int rowSize, int colCount, CryptoContext<DCRTPoly> cc){
+Ciphertext<DCRTPoly> calculateUpperLowerDiagonal(Ciphertext<DCRTPoly> ctxt, int diagCount, int rowSize, int colCount, CryptoContext<DCRTPoly> cc, bool isLower){
     Ciphertext<DCRTPoly> result;
     bool first = true;
     
     for (int i = 0; i < diagCount; i++){
-        vector<double> mask(9, 0.0);
+        vector<double> mask(12, 0.0);
             
         for (int j = 0; j < rowSize; j++){
-            mask[((j % rowSize) + (i + j) % colCount) - 1] = 1;    
+            if (isLower)
+                mask[((i + j) % rowSize) * colCount + (j % colCount)] = 1;
+            else
+                mask[(j % rowSize) * colCount + ((i + j) % colCount)] = 1;
+             
         }
 
         auto calc = cc -> EvalMult(ctxt, cc -> MakeCKKSPackedPlaintext(mask));
-        if (first) result = calc;
-        else {
+        if (first) {
+            result = calc;
             first = false;
+        }
+        else {
             result = cc -> EvalAdd(result, calc);
         }
     }
@@ -93,29 +99,6 @@ B[diagNum + 0, 1, 2 % rowCountB, (0,1,2) % colCountB]
 
 */
 
-//refactor into prev one
-Ciphertext<DCRTPoly> calculateLowerDiagonal(Ciphertext<DCRTPoly> ctxt, int diagCount, int rowSize, int colCount, CryptoContext<DCRTPoly> cc){
-    Ciphertext<DCRTPoly> result;
-    bool first = true;
-    
-    for (int i = 0; i < diagCount; i++){
-        vector<double> mask(9, 0.0);
-            
-        for (int j = 0; j < rowSize; j++){
-            mask[((i + j) % rowSize) + (j % colCount) - 1] = 1;    
-        }
-        auto calc = cc -> EvalMult(ctxt, cc -> MakeCKKSPackedPlaintext(mask));
-        if (first) result = calc;
-        else {
-            first = false;
-            cc -> EvalAdd(result, calc);
-        }
-
-    }
-    return result;
-
-
-}
 
 
 vector<double> calculateDiagonal(const EmbeddingMatrix& W, int diagNum) {
@@ -135,6 +118,8 @@ vector<double> calculateDiagonal(const EmbeddingMatrix& W, int diagNum) {
 
     return diag;
 }
+
+
 
 // Applies diagonal encoding based matrix-vector multiplication
 Ciphertext<DCRTPoly> applyDiagonalProjection(const Ciphertext<DCRTPoly>& encPE,
@@ -157,43 +142,141 @@ Ciphertext<DCRTPoly> applyDiagonalProjection(const Ciphertext<DCRTPoly>& encPE,
     return p;
 }
 
-Ciphertext<DCRTPoly> evalDotProduct2(const Ciphertext<DCRTPoly>& q,
+vector<double> generateMask(bool isUpper, size_t diagNum, size_t dim){
+    vector<double> mask(dim * dim, 0.0); // 3 *3
+
+    for (size_t i = 0; i < dim; i++){
+        size_t row, col;
+        if (isUpper){
+            row = i;
+            col = (diagNum + i) % dim;
+        }
+        else{
+            row = (diagNum + i) % dim;
+            col = i;
+        }
+        mask[row * dim + col] = 1;
+    }
+
+    return mask;
+}
+
+Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
                                     const Ciphertext<DCRTPoly>& k,
                                     CryptoContext<DCRTPoly> cc,
                                     size_t tokenCount, size_t slots,
-                                    size_t dim) {
+                                    size_t dim, lbcrypto::KeyPair<lbcrypto::DCRTPoly> keys) {
 
     Ciphertext<DCRTPoly> result;
-                                
     size_t diagCount = min(tokenCount, dim);
-                                    
-    Ciphertext<DCRTPoly> qUp = calculateUpperDiagonal(q, diagCount, tokenCount, dim, cc);
-    Ciphertext<DCRTPoly> kDo = calculateLowerDiagonal(k, diagCount, tokenCount, dim, cc);
-        
-    for (size_t i = 0; i < diagCount; i++){
-        
-        int rotation = i;
-        vector<double> maskqUp(9, 0.0);
-        vector<double> maskkDo(9, 0.0);
 
-        for (size_t j = 0; j < tokenCount; j++){ // need to have something better in place of tokenCount
-            maskqUp[(j - i) % tokenCount] = 1;
-            maskkDo[i + j] = 1;
-        } 
-
-        auto maskedqUpR = cc -> EvalRotate(cc -> EvalMult(qUp, cc -> MakeCKKSPackedPlaintext(maskqUp)), rotation);
-        auto maskedkDo = cc -> EvalMult(kDo, cc -> MakeCKKSPackedPlaintext(maskkDo));
-
-        auto product = cc->EvalMult(maskedqUpR, maskedkDo);
-
-        result = (i == 0) ? product : cc->EvalAdd(result, product);
-
-
+    // Debug: Print input matrices
+    {
+        Plaintext ptQ, ptK;
+        cc->Decrypt(keys.secretKey, q, &ptQ);
+        cc->Decrypt(keys.secretKey, k, &ptK);
+        ptQ->SetLength(9);
+        ptK->SetLength(dim*dim);
+        cout << "Input Q:\n" << ptQ->GetRealPackedValue() << endl;
+        cout << "Input K:\n" << ptK->GetRealPackedValue() << endl;
     }
+
+    for (size_t r = 0; r < diagCount; r++) {
+        cout << "\n=== Processing diagonal " << r << " ===" << endl;
+        Ciphertext<DCRTPoly> diagonalSum;
+
+        for (size_t l = 0; l < tokenCount; l++) {
+            cout << "-- Term l=" << l << " --" << endl;
+
+            // Generate and debug U_{l-r}(Q) mask
+            size_t u_diag = (dim + l - r) % dim;
+            auto uMask = generateMask(true, u_diag, dim);
+            cout << "U_" << u_diag << "(Q) mask: [";
+            for (auto v : uMask) cout << v << " ";
+            cout << "]" << endl;
+
+            auto uQ = cc->EvalMult(q, (cc->MakeCKKSPackedPlaintext(uMask)));
+            
+            // Debug extracted diagonal
+            Plaintext ptUQ;
+            cc->Decrypt(keys.secretKey, uQ, &ptUQ);
+            ptUQ->SetLength(dim*dim);
+            cout << "Extracted U_" << u_diag << "(Q): " << ptUQ->GetRealPackedValue() << endl;
+
+            // Rotate and debug
+            auto rotatedUq = cc->EvalRotate(uQ, r);
+            Plaintext ptRotUQ;
+            cc->Decrypt(keys.secretKey, rotatedUq, &ptRotUQ);
+            ptRotUQ->SetLength(dim*dim);
+            cout << "After rotation by " << r << ": " << ptRotUQ->GetRealPackedValue() << endl;
+
+            // Generate and debug L_l(K) mask
+            auto lMask = generateMask(false, l, dim);
+            cout << "L_" << l << "(K) mask: [";
+            for (auto v : lMask) cout << v << " ";
+            cout << "]" << endl;
+
+            auto lK = cc->EvalMult(k, cc->MakeCKKSPackedPlaintext(lMask));
+            
+            // Debug extracted diagonal
+            Plaintext ptLK;
+            cc->Decrypt(keys.secretKey, lK, &ptLK);
+            ptLK->SetLength(dim*dim);
+            cout << "Extracted L_" << l << "(K): " << ptLK->GetRealPackedValue() << endl;
+
+            // Multiply and debug
+            auto product = cc->EvalMult(rotatedUq, lK);
+            Plaintext ptProduct;
+            cc->Decrypt(keys.secretKey, product, &ptProduct);
+            ptProduct->SetLength(dim*dim);
+            cout << "Product term: " << ptProduct->GetRealPackedValue() << endl;
+
+            diagonalSum = (l == 0) ? product : cc->EvalAdd(diagonalSum, product);
+            
+            // Debug accumulated sum
+            Plaintext ptSum;
+            cc->Decrypt(keys.secretKey, diagonalSum, &ptSum);
+            ptSum->SetLength(dim*dim);
+            cout << "Current diagonal sum: " << ptSum->GetRealPackedValue() << endl;
+        }
+
+        // Debug before rotation
+        Plaintext ptBeforeRot;
+        cc->Decrypt(keys.secretKey, diagonalSum, &ptBeforeRot);
+        ptBeforeRot->SetLength(dim*dim);
+        cout << "\nDiagonal " << r << " before rotation: " << ptBeforeRot->GetRealPackedValue() << endl;
+
+        if (r == 0) {
+            result = diagonalSum;
+        } else {
+            result = (r == 0) ? diagonalSum : cc->EvalAdd(result, diagonalSum);
+
+            
+            // Debug after rotation
+            Plaintext ptShifted;
+            cc->Decrypt(keys.secretKey, result, &ptShifted);
+            ptShifted->SetLength(dim*dim);
+            cout << "After rotation by " << -r*dim << ": " << ptShifted->GetRealPackedValue() << endl;
+            
+            
+        }
+
+        // Debug current result
+        Plaintext ptResult;
+        cc->Decrypt(keys.secretKey, result, &ptResult);
+        ptResult->SetLength(dim*dim);
+        cout << "\nCurrent result matrix:\n" << ptResult->GetRealPackedValue() << endl;
+    }
+
+    // Final debug output
+    Plaintext ptFinal;
+    cc->Decrypt(keys.secretKey, result, &ptFinal);
+    ptFinal->SetLength(dim*dim);
+    cout << "\n=== Final Result ===\n" << ptFinal->GetRealPackedValue() << endl;
+
     return result;
 }
-
-
+/*
 // Computes dot product between two ciphertexts
 Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
                                     const Ciphertext<DCRTPoly>& k,
@@ -239,6 +322,8 @@ Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
     
     return packedScores;
 }
+
+*/
 
 // Apply exp
 Ciphertext<DCRTPoly> applyExp(const Ciphertext<DCRTPoly>& scores,
@@ -407,14 +492,14 @@ int main() {
 
     CCParams<CryptoContextCKKSRNS> parameters;
     parameters.SetSecretKeyDist(secretKeyDist);  
-    parameters.SetSecurityLevel(HEStd_128_classic);  
+    parameters.SetSecurityLevel(HEStd_NotSet);  
 
     parameters.SetFirstModSize(60);              
     parameters.SetScalingModSize(59);
     parameters.SetScalingTechnique(FLEXIBLEAUTO);
     //parameters.SetMultiplicativeDepth(levelsAfter + bootDepth);
     parameters.SetMultiplicativeDepth(levelsAfter + bootDepth);
-    parameters.SetRingDim(32768);                 
+    parameters.SetRingDim(8192);                 
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
     cc->Enable(PKE);
@@ -463,13 +548,25 @@ int main() {
     auto k = applyDiagonalProjection(encPE, W_K, cc);
     auto v = applyDiagonalProjection(encPE, W_V, cc);
 
+
+    Plaintext decScoreq;
+    cc->Decrypt(keys.secretKey, q, &decScoreq);
+    decScoreq->SetLength(embeddings.size() * embeddings.size()); // 9
+    cout << "q slots: " << decScoreq->GetRealPackedValue() << endl;
+
+    Plaintext decScorek;
+    cc->Decrypt(keys.secretKey, k, &decScorek);
+    decScorek->SetLength(embeddings.size() * embeddings.size()); // 9
+    cout << "k slots: " << decScorek->GetRealPackedValue() << endl;
+  
+
     vector<int32_t> negRotIndices;
     for (int l = 1; l < 12; l++) {
         negRotIndices.push_back(-l);
     }
     cc->EvalAtIndexKeyGen(keys.secretKey, negRotIndices);
 
-    Ciphertext<DCRTPoly> score = evalDotProduct(q, k, cc, embeddings.size(), 12, dim);
+    Ciphertext<DCRTPoly> score = evalDotProduct(q, k, cc, embeddings.size(), 12, 3, keys);
 
     Plaintext decScore;
     cc->Decrypt(keys.secretKey, score, &decScore);

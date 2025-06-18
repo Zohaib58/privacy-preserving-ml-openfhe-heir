@@ -228,7 +228,7 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
     auto y = cc->EvalMult(expPower, invSum);
     
 
-    y = cc -> EvalBootstrap(y);
+    //y = cc -> EvalBootstrap(y);
     
     // --- Phase 2: Squaring and re-normalizing log2(delta2) times ---
     int steps = log2(delta2);
@@ -251,7 +251,7 @@ Ciphertext<DCRTPoly> applySoftMax(const Ciphertext<DCRTPoly>& scores,
     }
     //y = cc->ModReduce(y);
     
-    y = cc -> EvalBootstrap(y);
+    //y = cc -> EvalBootstrap(y);
 
     return y;
 }
@@ -305,23 +305,23 @@ int main() {
         {0.3, 0.4, 0.1, 0.2}    // "sat"
     };
 
-    std::vector<uint32_t> levelBudget = {10, 10};
-    uint32_t levelsAfter = 20;
-
-    // Use recommended bootstrap depth computation
+    // Parameters aligned with your softmax production setup
+    //std::vector<uint32_t> levelBudget = {10, 10};
+    //uint32_t levelsAfter = 20;
     SecretKeyDist secretKeyDist = UNIFORM_TERNARY;
-    uint32_t bootDepth = FHECKKSRNS::GetBootstrapDepth(levelBudget, secretKeyDist);
+
+    //uint32_t bootDepth = FHECKKSRNS::GetBootstrapDepth(levelBudget, secretKeyDist);
 
     CCParams<CryptoContextCKKSRNS> parameters;
-    parameters.SetSecretKeyDist(secretKeyDist);  
-    parameters.SetSecurityLevel(HEStd_128_classic);  
-
-    parameters.SetFirstModSize(60);              
-    parameters.SetScalingModSize(59);
+    parameters.SetSecretKeyDist(secretKeyDist);
+    parameters.SetSecurityLevel(HEStd_128_classic);        // You can use NotSet if you want manual tuning
+    parameters.SetFirstModSize(60);
+    parameters.SetScalingModSize(35);                      // Updated from 59 → 35 as per your prod config
     parameters.SetScalingTechnique(FLEXIBLEAUTO);
-    //parameters.SetMultiplicativeDepth(levelsAfter + bootDepth);
-    parameters.SetMultiplicativeDepth(levelsAfter + bootDepth);
-    parameters.SetRingDim(32768);                 
+    parameters.SetMultiplicativeDepth(25); // 30
+    parameters.SetRingDim(131072);                         // Your production ring dimension
+    parameters.SetBatchSize(1024);                         // SIMD capacity as per softmax setup
+                 
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
     cc->Enable(PKE);
@@ -331,7 +331,7 @@ int main() {
     cc->Enable(FHE);
 
     std::cout << "Starting bootstrap setup...\n";
-    cc->EvalBootstrapSetup(levelBudget);
+    //cc->EvalBootstrapSetup(levelBudget);
     std::cout << "Bootstrap setup completed.\n";
 
 
@@ -344,7 +344,7 @@ int main() {
 
     auto keys = cc->KeyGen();
     cc->EvalMultKeyGen(keys.secretKey);
-    cc->EvalBootstrapKeyGen(keys.secretKey, cc->GetRingDimension() / 2);  
+    //cc->EvalBootstrapKeyGen(keys.secretKey, cc->GetRingDimension() / 2);  
     
     vector<double> flattenPE = flattenMatrix(peMatrix);
     Plaintext ptxt;

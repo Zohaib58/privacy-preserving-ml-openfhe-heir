@@ -41,6 +41,52 @@ EmbeddingMatrix addPositionalEncoding(const EmbeddingMatrix& embeddings){
 }
 
 
+vector<double> flattenMatrixIntoDiagEncoding(EmbeddingMatrix matrix){
+    size_t rows = matrix.size();
+    size_t cols = matrix[0].size();
+    size_t diags = min(rows, cols);
+
+    size_t size = rows * cols;
+
+    vector<double> flatDE(size);
+
+    for (size_t i = 0; i < rows; i++){ 
+        flatDE[i] = matrix[i][i];
+        flatDE[i + 1] = matrix[i][(i + 1) % diags];
+        flatDE[i + 2] = matrix[i][(i + 2) % diags];
+    }
+
+    return flatDE;
+
+}
+
+
+vector<double> flattenMatrixIntoInterlacedDiagEncoding(vector<double> flatDE, size_t tokens, size_t dim, size_t diagsCount){
+    
+    vector<double> flatIDE(tokens * dim);
+
+    for (size_t i = 0; i < tokens; i++){
+        for (size_t j = 0; j < diagsCount; j++){
+            flatIDE.push_back(flatDE[j * tokens + i]);
+        }
+    }
+}
+
+EmbeddingMatrix transposeMatrix(EmbeddingMatrix matrix){
+    size_t rows = matrix.size();
+    size_t cols = matrix[0].size();
+    
+    EmbeddingMatrix transposeMatrix(cols, Vector(rows));
+
+    for (size_t i = 0; i < rows; i++) {
+        for (size_t j = 0; j < cols; j++) {
+            transposeMatrix[j][i] = matrix[i][j]; 
+        }
+    }
+
+    return transposeMatrix;
+}
+
 vector<double> flattenMatrix(EmbeddingMatrix matrix){
     vector<double> flatVec;
     size_t rows = matrix.size();
@@ -109,42 +155,44 @@ Ciphertext<DCRTPoly> evalDotProduct(const Ciphertext<DCRTPoly>& q,
                                     size_t dim) {
                          
     
-    vector<Ciphertext<DCRTPoly>> score;
+    vector<Ciphertext<DCRTPoly>> dotProducts;
 
-    for (size_t i = 0; i < slots; i += dim){ // for q[i]
-        
-        vector<double> mask(slots, 0.0);
-        for (size_t m = i; m < i + 4; m++){
-            mask[m] = 1;
-        }                
-        
-        for (size_t j = 0; j < slots; j+=dim){// for k[i]
-        
-            // convert mask to plaintext
-            
-            // evalmult of q with mask
-            //cc -> EvalMult(q, cc -> MakeCKKSPackedPlaintext(mask));
-            // evalmult of q with evalrotate(j) of k
-            //cc -> EvalRotate(k, j);
-
-            auto scalar = cc -> EvalMult(cc -> EvalMult(q, cc -> MakeCKKSPackedPlaintext(mask)), cc -> EvalRotate(k, j - i));
-            score.push_back(cc -> EvalSum(scalar, dim));
-            
-            
+    for (size_t i = 0; i < tokenCount; ++i) {
+        // Create a mask to extract qᵢ
+        vector<double> qMask(slots, 0.0);
+        for (size_t d = 0; d < dim; ++d) {
+            qMask[i * dim + d] = 1.0;
         }
-           
-        
-    } 
-    
 
-    Ciphertext<DCRTPoly> packedScores = score[0];
+        auto q_i = cc->EvalMult(q, cc->MakeCKKSPackedPlaintext(qMask));
 
-    for (int l = 1; l < 9; l++){
-        auto shifted = cc -> EvalRotate(score[l], -l);
-        packedScores = cc -> EvalAdd(packedScores, shifted);
+        for (size_t j = 0; j < tokenCount; ++j) {
+            // Create a mask to extract kⱼ
+            vector<double> kMask(slots, 0.0);
+            for (size_t d = 0; d < dim; ++d) {
+                kMask[j * dim + d] = 1.0;
+            }
+
+            auto k_j = cc->EvalMult(k, cc->MakeCKKSPackedPlaintext(kMask));
+
+            // Multiply qᵢ and kⱼ element-wise
+            auto prod = cc->EvalMult(q_i, k_j);
+
+            // Sum over dimensions to compute dot(qᵢ, kⱼ)
+            auto dot = cc->EvalSum(prod, dim);
+            dotProducts.push_back(dot);
+        }
     }
-    
-    return packedScores;
+
+    // Pack all dot products into one ciphertext (row-major layout)
+    Ciphertext<DCRTPoly> packed = dotProducts[0];
+    for (size_t l = 1; l < dotProducts.size(); ++l) {
+        auto shifted = cc->EvalRotate(dotProducts[l], -static_cast<int>(l));
+        packed = cc->EvalAdd(packed, shifted);
+    }
+
+    return packed;
+
 }
 
 // Apply exp
@@ -314,12 +362,12 @@ int main() {
 
     CCParams<CryptoContextCKKSRNS> parameters;
     parameters.SetSecretKeyDist(secretKeyDist);
-    parameters.SetSecurityLevel(HEStd_128_classic);        // You can use NotSet if you want manual tuning
+    parameters.SetSecurityLevel(HEStd_NotSet);        // You can use NotSet if you want manual tuning
     parameters.SetFirstModSize(60);
     parameters.SetScalingModSize(35);                      // Updated from 59 → 35 as per your prod config
     parameters.SetScalingTechnique(FLEXIBLEAUTO);
     parameters.SetMultiplicativeDepth(25); // 30
-    parameters.SetRingDim(131072);                         // Your production ring dimension
+    parameters.SetRingDim(8192);                         // Your production ring dimension
     parameters.SetBatchSize(1024);                         // SIMD capacity as per softmax setup
                  
 
@@ -340,19 +388,29 @@ int main() {
     size_t dim = embeddings[0].size();
     size_t total_slots = words * dim;
 
-    EmbeddingMatrix peMatrix = addPositionalEncoding(embeddings);
+    EmbeddingMatrix peEmbeddings = addPositionalEncoding(embeddings);
 
     auto keys = cc->KeyGen();
     cc->EvalMultKeyGen(keys.secretKey);
     //cc->EvalBootstrapKeyGen(keys.secretKey, cc->GetRingDimension() / 2);  
     
-    vector<double> flattenPE = flattenMatrix(peMatrix);
-    Plaintext ptxt;
-    ptxt = MakeCKKSPackedTokens(flattenPE, cc);
-    Ciphertext<DCRTPoly> encPE;
-    encPE = cc->Encrypt(keys.publicKey, ptxt);
+    EmbeddingMatrix EmbeddingsT = transposeMatrix(peEmbeddings);
+    
+    vector<double> flattenDiagEmbeddings = flattenMatrixIntoDiagEncoding(peEmbeddings);
+    vector<double> flattenDiagEmbeddingsT = flattenMatrixIntoDiagEncoding(EmbeddingsT);
 
-    cout << "Packed PE Plaintext: " << ptxt->GetRealPackedValue() << endl;
+
+
+    Plaintext x;
+    x = MakeCKKSPackedTokens(flattenDiagEmbeddings, cc);
+    
+    Plaintext xT;
+    xT = MakeCKKSPackedTokens(flattenDiagEmbeddingsT, cc);
+    
+    Ciphertext<DCRTPoly> encPE;
+    //encPE = cc->Encrypt(keys.publicKey, ptxt);
+
+    //cout << "Packed PE Plaintext: " << ptxt->GetRealPackedValue() << endl;
 
 
     EmbeddingMatrix W_Q = {{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}, {0.9, 1.0, 1.1, 1.2}, {1.3, 1.4, 1.5, 1.6}};

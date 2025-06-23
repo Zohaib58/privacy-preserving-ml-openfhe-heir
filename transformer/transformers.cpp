@@ -307,9 +307,9 @@ int main() {
     cout << "flattenIDiagK" << flattenIDiagK << endl;
 
 
-    size_t dimP = dimE;
-    size_t diagsP = rowK;
-    Ciphertext<DCRTPoly> ck = product(cxT, kptxt, diagsP, dimP, cc, keys, batchSize);
+    size_t dimPK = dimE;
+    size_t diagsPK = rowK;
+    Ciphertext<DCRTPoly> ck = product(cxT, kptxt, diagsPK, dimPK, cc, keys, batchSize);
 
     
     

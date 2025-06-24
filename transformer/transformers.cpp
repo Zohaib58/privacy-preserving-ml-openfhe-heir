@@ -137,7 +137,7 @@ Ciphertext<DCRTPoly> product(Ciphertext<DCRTPoly> ctxt, Plaintext ptxt, size_t d
         Plaintext sumTemp;
             cc->Decrypt(keys.secretKey, sum, &sumTemp);
             sumTemp->SetLength(batchSize);  // or actual length of packed data
-            std::cout << "Diagonal: " << sumTemp->GetRealPackedValue() << std::endl;
+            //cout << "Diagonal: " << sumTemp->GetRealPackedValue() << endl;
 
         sum = cc -> EvalMult(sum, cc -> MakeCKKSPackedPlaintext(mask));
         
@@ -154,7 +154,7 @@ Ciphertext<DCRTPoly> product(Ciphertext<DCRTPoly> ctxt, Plaintext ptxt, size_t d
         Plaintext temp;
         cc->Decrypt(keys.secretKey, all_diagonals, &temp);
         temp->SetLength(batchSize);  // or actual length of packed data
-        cout << "Diagonal: " << temp->GetRealPackedValue() << endl;
+        //cout << "Diagonal: " << temp->GetRealPackedValue() << endl;
 
     }
 
@@ -218,9 +218,9 @@ int main() {
     size_t diagsET = min(wordsET, dimET);
 
     
-    vector<double> flattenDiagEmbeddings = flattenMatrixUpperDiag(peEmbeddings);
-    vector<double> flattenDiagEmbeddingsT = flattenMatrixUpperDiag(EmbeddingsT);
-    cout << "flatteIDiagEmbeddingsT" << flattenDiagEmbeddingsT << endl;
+    vector<double> flattenDiagEmbeddings = flattenMatrixLowerDiag(peEmbeddings);
+    vector<double> flattenDiagEmbeddingsT = flattenMatrixLowerDiag(EmbeddingsT);
+    //cout << "flatteIDiagEmbeddingsT" << flattenDiagEmbeddingsT << endl;
 
     /*
     vector<double> flattenIDiagEmbeddings = flattenMatrixInterlacedDiagEncoding(flattenDiagEmbeddings, wordsE, dimE, diagsE);
@@ -259,7 +259,7 @@ int main() {
     size_t dimQT = QT[0].size();
     
     //cout << "Q Ttranposed " << QT << endl;
-    vector<double> flattenDiagQT = flattenMatrixLowerDiag(QT);
+    vector<double> flattenDiagQT = flattenMatrixUpperDiag(QT);
     //cout << "flatten Diag QT " << flattenDiagQT << endl;
     
     
@@ -300,7 +300,7 @@ int main() {
     size_t rowK = W_K.size();
     size_t dimK = W_K[0].size();
     
-    vector<double> flattenDiagK = flattenMatrixLowerDiag(W_K);
+    vector<double> flattenDiagK = flattenMatrixUpperDiag(W_K);
     size_t diagsK = min(W_K.size(), W_K[0].size());
     vector<double> flattenIDiagK = flattenMatrixInterlacedDiagEncoding(flattenDiagK, rowK, dimK, diagsK);
     Plaintext kptxt = cc -> MakeCKKSPackedPlaintext(flattenIDiagK);
@@ -310,8 +310,10 @@ int main() {
     size_t dimPK = dimE;
     size_t diagsPK = rowK;
     Ciphertext<DCRTPoly> ck = product(cxT, kptxt, diagsPK, dimPK, cc, keys, batchSize);
-
-    
+    Plaintext tempk;
+    cc->Decrypt(keys.secretKey, ck, &tempk);
+    temp->SetLength(batchSize);  // or the actual expected length
+    cout << "ck" << tempk->GetRealPackedValue() << endl;
     
     
    

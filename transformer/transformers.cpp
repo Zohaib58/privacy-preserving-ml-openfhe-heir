@@ -182,14 +182,14 @@ int main() {
 
     CCParams<CryptoContextCKKSRNS> parameters;
     parameters.SetSecretKeyDist(secretKeyDist);
-    parameters.SetSecurityLevel(HEStd_NotSet);        // You can use NotSet if you want manual tuning
+    parameters.SetSecurityLevel(HEStd_NotSet);        
     parameters.SetFirstModSize(60);
-    parameters.SetScalingModSize(35);                      // Updated from 59 → 35 as per your prod config
+    parameters.SetScalingModSize(35);                      
     parameters.SetScalingTechnique(FLEXIBLEAUTO);
     parameters.SetMultiplicativeDepth(25); // 30
     parameters.SetRingDim(8192);
-    size_t batchSize = 16;                         // Your production ring dimension
-    parameters.SetBatchSize(batchSize);                         // SIMD capacity as per softmax setup
+    size_t batchSize = 16;                        
+    parameters.SetBatchSize(batchSize);                         
                  
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);

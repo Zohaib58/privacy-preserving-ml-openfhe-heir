@@ -160,6 +160,7 @@ Ciphertext<DCRTPoly> product(Ciphertext<DCRTPoly> ctxt, Plaintext ptxt, size_t d
 
     return all_diagonals;
 }
+
 Plaintext MakeCKKSPackedTokens(vector<double> flattenPE, CryptoContext<DCRTPoly> cc){
     return cc->MakeCKKSPackedPlaintext(flattenPE);
 }
@@ -262,19 +263,21 @@ int main() {
     vector<double> flattenDiagQT = flattenMatrixUpperDiag(QT);
     //cout << "flatten Diag QT " << flattenDiagQT << endl;
     
-    
+    /*
     size_t diagsQT = min(W_Q.size(), W_Q[0].size());
     vector<double> flattenIDiagQT = flattenMatrixInterlacedDiagEncoding(flattenDiagQT, rowQT, dimQT, diagsQT);
     cout << "flattenIDiagQT" << flattenIDiagQT << endl;
 
+    */
+    
     
     
 
     Plaintext qtptxt;
-    qtptxt = cc -> MakeCKKSPackedPlaintext(flattenIDiagQT);
+    qtptxt = cc -> MakeCKKSPackedPlaintext(flattenDiagQT);
 
     vector<double> decodedVector = qtptxt->GetRealPackedValue();
-    //cout << "qtptxt " << decodedVector << endl;
+    cout << "qtptxt " << decodedVector << endl;
 
     vector<int32_t> rotIndices;
     for (size_t i = 0; i < total_slots; i++) rotIndices.push_back(i);
@@ -301,11 +304,7 @@ int main() {
     size_t dimK = W_K[0].size();
     
     vector<double> flattenDiagK = flattenMatrixUpperDiag(W_K);
-    size_t diagsK = min(W_K.size(), W_K[0].size());
-    vector<double> flattenIDiagK = flattenMatrixInterlacedDiagEncoding(flattenDiagK, rowK, dimK, diagsK);
-    Plaintext kptxt = cc -> MakeCKKSPackedPlaintext(flattenIDiagK);
-    cout << "flattenIDiagK" << flattenIDiagK << endl;
-
+    Plaintext kptxt = cc -> MakeCKKSPackedPlaintext(flattenDiagK);
 
     size_t dimPK = dimE;
     size_t diagsPK = rowK;
